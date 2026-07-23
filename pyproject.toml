@@ -1,0 +1,53 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "viewalyzer-cli"
+version = "0.1.0"
+description = "Python bindings for the ViewAlyzer headless CLI - automate trace capture, queries, and regression tests in CI"
+readme = "README.md"
+license = { file = "LICENSE" }
+requires-python = ">=3.9"
+authors = [{ name = "Free Radical Labs" }]
+keywords = [
+    "embedded",
+    "rtos",
+    "tracing",
+    "profiler",
+    "ci",
+    "regression-testing",
+    "viewalyzer",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Topic :: Software Development :: Embedded Systems",
+    "Topic :: Software Development :: Testing",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Operating System :: OS Independent",
+    "Typing :: Typed",
+]
+
+# Stdlib only (subprocess, json, sqlite3) - keep it that way.
+dependencies = []
+
+[project.optional-dependencies]
+dev = ["pytest>=7"]
+
+[project.scripts]
+viewalyzer-doctor = "viewalyzer_cli.__main__:main"
+
+[project.urls]
+Homepage = "https://viewalyzer.net"
+Documentation = "https://viewalyzer.net/docs.html"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+viewalyzer_cli = ["py.typed"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
