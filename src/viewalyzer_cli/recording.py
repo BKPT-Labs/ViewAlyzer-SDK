@@ -154,9 +154,37 @@ class Recording:
         value = self.summary().get("total_events")
         return int(value) if value is not None else 0
 
+    @property
+    def has_sequence_info(self) -> bool:
+        """True when the recorder stamped packets with sequence numbers
+        (wire protocol v3, ``VA_SEQ_COUNTER``). Only then can loss be
+        *proven*: a pre-v3 recording reporting no loss means "unknown",
+        not "zero"."""
+        return int(self.summary().get("seq_present") or 0) != 0
+
+    @property
+    def lost_events(self) -> int:
+        """Exact number of packets the recorder emitted that never arrived
+        (dropped at the source by a full buffer, or lost in transport),
+        from the v3 sequence counter. 0 when the stream carries no
+        sequence info - check :attr:`has_sequence_info` to distinguish
+        verified-zero from unknowable."""
+        return int(self.summary().get("lost_events") or 0)
+
+    @property
+    def seq_gaps(self) -> int:
+        """Number of distinct loss bursts behind :attr:`lost_events`."""
+        return int(self.summary().get("seq_gaps") or 0)
+
     def is_clean(self) -> bool:
-        """True when the capture had no corrupt bytes."""
-        return int(self.summary().get("corrupt_bytes") or 0) == 0
+        """True when the capture had no corrupt bytes AND no sequence-counter
+        loss. This is the assertion to use for "every emitted event made it
+        into the recording": corrupt bytes measure damage to what arrived,
+        lost events measure what never arrived at all."""
+        return (
+            int(self.summary().get("corrupt_bytes") or 0) == 0
+            and self.lost_events == 0
+        )
 
     # ----- helpers --------------------------------------------------------
 

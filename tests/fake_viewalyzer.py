@@ -8,7 +8,7 @@ import sqlite3
 import sys
 
 
-def make_vadb(path, total_events=1234):
+def make_vadb(path, total_events=1234, seq_present=True, lost_events=0, seq_gaps=0):
     con = sqlite3.connect(path)
     con.executescript(
         """
@@ -26,15 +26,16 @@ def make_vadb(path, total_events=1234):
             ("has_va", "1"),
         ],
     )
-    con.executemany(
-        "INSERT INTO va_summary VALUES (?, ?)",
-        [
-            ("total_events", str(total_events)),
-            ("cpu_load_percent", "33.9"),
-            ("span_seconds", "8.93"),
-            ("corrupt_bytes", "0"),
-        ],
-    )
+    rows = [
+        ("total_events", str(total_events)),
+        ("cpu_load_percent", "33.9"),
+        ("span_seconds", "8.93"),
+        ("corrupt_bytes", "0"),
+        ("seq_present", "1" if seq_present else "0"),
+    ]
+    if seq_present:
+        rows += [("lost_events", str(lost_events)), ("seq_gaps", str(seq_gaps))]
+    con.executemany("INSERT INTO va_summary VALUES (?, ?)", rows)
     con.executemany(
         "INSERT INTO va_task_stats VALUES (?, ?, ?)",
         [

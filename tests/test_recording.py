@@ -14,6 +14,30 @@ def test_summary_and_total_events(va, vadb):
     assert rec.is_clean()
 
 
+def test_sequence_loss_properties(va, vadb, tmp_path):
+    rec = va.open(vadb)
+    assert rec.has_sequence_info
+    assert rec.lost_events == 0
+    assert rec.seq_gaps == 0
+
+    from fake_viewalyzer import make_vadb
+
+    lossy = tmp_path / "lossy.vadb"
+    make_vadb(lossy, seq_present=True, lost_events=37, seq_gaps=2)
+    rec = va.open(lossy)
+    assert rec.has_sequence_info
+    assert rec.lost_events == 37
+    assert rec.seq_gaps == 2
+    assert not rec.is_clean()  # loss makes a capture unclean even with 0 corrupt bytes
+
+    legacy = tmp_path / "legacy.vadb"
+    make_vadb(legacy, seq_present=False)
+    rec = va.open(legacy)
+    assert not rec.has_sequence_info
+    assert rec.lost_events == 0  # unknown, not proven zero
+    assert rec.is_clean()  # pre-v3 recorders keep the old corrupt-bytes-only meaning
+
+
 def test_meta_typed(va, vadb):
     meta = va.open(vadb).meta()
     assert meta["va_cpu_hz"] == 170_000_000
