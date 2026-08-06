@@ -152,7 +152,7 @@ code.
 ## Portable configs on shared drives
 
 `.vacfg.json` files committed with a project are portable *except* for
-machine-absolute tool paths (`jlink`, `openocd`, ...). Don't edit the
+machine-absolute tool paths (`jlink`, `arm-gdb`, ...). Don't edit the
 shared file for your machine — load it, override in memory, and pass the
 dict:
 

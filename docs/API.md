@@ -90,7 +90,7 @@ record(config, *, output, duration_s, extra_flags=(), timeout_s=None) -> Recordi
   `target-init`. Supported transports: `stlink-swo`, `stlink-rambuf`,
   `jlink-rambuf`, `jlink-rtt`, `udp`, `serial`.
 - `extra_flags` — appended verbatim for flags without a dedicated
-  parameter (e.g. `["--log", path]`, `["--rambuf-driver", "openocd"]`,
+  parameter (e.g. `["--log", path]`,
   port overrides). CLI flags win over config-file values.
 - `output` — where to write the `.vadb`. The CLI **forces the `.vadb`
   extension**; the returned `Recording.path` is the authoritative on-disk
