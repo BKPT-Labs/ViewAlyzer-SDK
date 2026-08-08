@@ -17,7 +17,7 @@ from .discovery import ENV_VAR, find_viewalyzer, find_viewalyzer_with_source
 from .errors import BinaryNotFound, ViewAlyzerError
 from .recording import Recording
 
-__version__ = "0.1.0"
+__version__ = "1.0.0"
 
 __all__ = [
     "ViewAlyzer",
