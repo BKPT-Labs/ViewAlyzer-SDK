@@ -14,7 +14,7 @@ test can be three lines of Python.
 from viewalyzer_cli import ViewAlyzer
 
 va = ViewAlyzer()  # finds the installed ViewAlyzer app
-rec = va.record("board.vacfg.json", output="run1.vadb", duration_s=10)
+rec = va.record("board.vacf", output="run1.vadb", duration_s=10)
 
 assert rec.total_events > 0                      # capture actually captured
 assert rec.is_clean()                            # no corrupt bytes
@@ -57,8 +57,8 @@ Or pass a path explicitly: `ViewAlyzer("/path/to/ViewAlyzer")`.
 ## Capturing
 
 ```python
-# From a committed connection config (.vacfg.json)...
-rec = va.record("board.vacfg.json", output="ci-run.vadb", duration_s=10)
+# From a committed connection config (.vacf)...
+rec = va.record("board.vacf", output="ci-run.vadb", duration_s=10)
 
 # ...or an inline dict with the same keys (CLI flag names, no leading --):
 rec = va.record(
@@ -77,7 +77,7 @@ Memory polling needs no firmware instrumentation at all:
 ```python
 symbols = va.list_symbols("firmware.elf", filter="motor")
 rec = va.record_polls("firmware.elf", ["tick_counter", "adc_value"],
-                      duration_s=10, poll_hz=100, config="board.vacfg.json")
+                      duration_s=10, poll_hz=100, config="board.vacf")
 ```
 
 ## Querying
@@ -126,7 +126,7 @@ def va():
 @pytest.fixture(scope="session")
 def rec(va, tmp_path_factory):
     out = tmp_path_factory.mktemp("trace") / "run.vadb"
-    r = va.record("board.vacfg.json", output=out, duration_s=10)
+    r = va.record("board.vacf", output=out, duration_s=10)
     assert r.total_events > 0, "empty capture - check probe/firmware setup"
     return r
 
@@ -151,13 +151,13 @@ code.
 
 ## Portable configs on shared drives
 
-`.vacfg.json` files committed with a project are portable *except* for
+`.vacf` files committed with a project are portable *except* for
 machine-absolute tool paths (`jlink`, `arm-gdb`, ...). Don't edit the
 shared file for your machine — load it, override in memory, and pass the
 dict:
 
 ```python
-cfg = json.loads(Path("board.vacfg.json").read_text())
+cfg = json.loads(Path("board.vacf").read_text())
 if not Path(cfg.get("jlink", "")).exists():          # path from another OS
     cfg["jlink"] = shutil.which("JLinkGDBServerCL") or cfg["jlink"]
 rec = va.record(cfg, output="run.vadb", duration_s=10)

@@ -82,7 +82,7 @@ files itself, ignore the index and pass paths.
 record(config, *, output, duration_s, extra_flags=(), timeout_s=None) -> Recording
 ```
 
-- `config` — a `.vacfg.json` path **or an inline dict** with the same keys
+- `config` — a `.vacf` path **or an inline dict** with the same keys
   (the CLI flag names without the leading `--`: `transport`,
   `target-device`, `cpu-clock-hz`, `rtt-channel`, tool paths, ...). Inline
   dicts are written to a temp file for the call and cleaned up after. Two
@@ -232,12 +232,12 @@ except ViewAlyzerError as e:
 
 ### Dual-boot / shared-drive configs
 
-Committed `.vacfg.json` files travel across OSes, but tool paths in them
+Committed `.vacf` files travel across OSes, but tool paths in them
 (e.g. `jlink`) are machine-absolute. Don't edit the shared file — merge
 over it in memory:
 
 ```python
-cfg = json.loads(Path("board.vacfg.json").read_text())
+cfg = json.loads(Path("board.vacf").read_text())
 if not Path(cfg.get("jlink", "")).exists():
     cfg["jlink"] = shutil.which("JLinkGDBServerCL") or \
         r"C:\Program Files\SEGGER\JLink_V962\JLinkGDBServerCL.exe"
@@ -258,7 +258,7 @@ assert addr == int(cfg["rtt-address"], 16), "config pin doesn't match flashed EL
 @pytest.fixture(scope="session")
 def rec(va, tmp_path_factory):
     out = tmp_path_factory.mktemp("trace") / "ci.vadb"
-    r = va.record("board.vacfg.json", output=out, duration_s=10)
+    r = va.record("board.vacf", output=out, duration_s=10)
     assert r.total_events > 0, "empty capture - probe or firmware setup broken"
     assert r.is_clean()
     return r

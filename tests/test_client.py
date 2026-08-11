@@ -24,7 +24,7 @@ def test_list_recordings_and_handles(va):
 
 
 def test_record_with_config_file(va, tmp_path):
-    cfg = tmp_path / "board.vacfg.json"
+    cfg = tmp_path / "board.vacf"
     cfg.write_text(json.dumps({"transport": "udp", "udp-port": 5005}))
     rec = va.record(cfg, output=tmp_path / "run1.vadb", duration_s=1)
     assert rec.recording_id == "abcdef123456"

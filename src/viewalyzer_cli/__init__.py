@@ -6,7 +6,7 @@ real embedded targets from Python, pytest, and CI:
     from viewalyzer_cli import ViewAlyzer
 
     va = ViewAlyzer()
-    rec = va.record("board.vacfg.json", output="run1.vadb", duration_s=10)
+    rec = va.record("board.vacf", output="run1.vadb", duration_s=10)
     assert rec.total_events > 0
     assert rec.inversions()["inversions"] == []
     top = rec.task_stats()[0]

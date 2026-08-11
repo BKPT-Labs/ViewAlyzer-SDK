@@ -3,7 +3,7 @@
     from viewalyzer_cli import ViewAlyzer
 
     va = ViewAlyzer()                      # finds the installed app
-    rec = va.record("board.vacfg.json", output="run1.vadb", duration_s=10)
+    rec = va.record("board.vacf", output="run1.vadb", duration_s=10)
     assert rec.total_events > 0
     assert rec.inversions()["inversions"] == []
 
@@ -54,7 +54,7 @@ _RECORDING_SAVED_RE = re.compile(r"Recording saved:\s*(.+?)\s*\(\d+\s*KB\)")
 _RECORDING_ID_RE = re.compile(r"Recording registered:\s*id=([0-9a-f]{12})")
 
 PathLike = Union[str, Path]
-#: A connection config: a ``.vacfg.json`` path, or an inline dict whose keys
+#: A connection config: a ``.vacf`` path, or an inline dict whose keys
 #: are the CLI flag names without the leading ``--``.
 ConfigSpec = Union[PathLike, Mapping[str, Any]]
 
@@ -200,7 +200,7 @@ class ViewAlyzer:
     ) -> Recording:
         """Record the target's trace stream for *duration_s* seconds.
 
-        *config* is a ``.vacfg.json`` path or an inline dict with the same
+        *config* is a ``.vacf`` path or an inline dict with the same
         keys (``transport``, ``target-device``, ``cpu-clock-hz``, tool
         paths, ...). *extra_flags* are appended verbatim for flags without a
         dedicated parameter (e.g. ``["--log", path]`` or port overrides);
@@ -381,7 +381,7 @@ def _capture_failure_detail(r: Any) -> str:
 
 class _config_path:
     """Context manager turning a ConfigSpec into an on-disk path. Inline
-    dicts are written to a temp ``.vacfg.json`` and removed afterwards."""
+    dicts are written to a temp ``.vacf`` and removed afterwards."""
 
     def __init__(self, config: ConfigSpec) -> None:
         self._config = config
@@ -389,7 +389,7 @@ class _config_path:
 
     def __enter__(self) -> Path:
         if isinstance(self._config, Mapping):
-            fd, name = tempfile.mkstemp(suffix=".vacfg.json", prefix="viewalyzer-")
+            fd, name = tempfile.mkstemp(suffix=".vacf", prefix="viewalyzer-")
             with os.fdopen(fd, "w", encoding="utf-8") as f:
                 json.dump(dict(self._config), f)
             self._temp = Path(name)
