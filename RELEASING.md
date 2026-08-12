@@ -83,7 +83,7 @@ jobs:
 
 ## 4. Naming note
 
-The recorder-side protocol library (`ViewAlyzerRecorder/python/`) also calls
+The UDP sender library (`ViewAlyzer/Example-Projects/Desktop-Python-UDP/`) also calls
 itself `viewalyzer` in its pyproject but is not on PyPI yet. Decide the
 family naming before publishing either package — e.g. this one as
 `viewalyzer-cli` and the sender as `viewalyzer-protocol` — because the first
