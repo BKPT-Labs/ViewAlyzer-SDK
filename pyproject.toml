@@ -42,6 +42,8 @@ viewalyzer-doctor = "viewalyzer_sdk.__main__:main"
 [project.urls]
 Homepage = "https://viewalyzer.net"
 Documentation = "https://viewalyzer.net/docs.html"
+Repository = "https://github.com/BKPT-Labs/ViewAlyzer-SDK"
+Issues = "https://github.com/BKPT-Labs/ViewAlyzer-SDK/issues"
 
 [tool.setuptools.packages.find]
 where = ["src"]

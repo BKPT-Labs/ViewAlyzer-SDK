@@ -23,7 +23,8 @@ assert rec.task_stats()[0]["cpu_percent"] < 80   # CPU headroom held
 ```
 
 Zero dependencies, stdlib only. Requires a ViewAlyzer installation
-(the app is the engine; this package is the steering wheel).
+(the app is the engine; this package is the steering wheel). Get the app
+at [viewalyzer.net](https://viewalyzer.net).
 
 ## Install
 
@@ -200,4 +201,4 @@ rec = va.record(cfg, output="run.vadb", duration_s=10)
 
 Full method-by-method reference, error-code table, and troubleshooting
 (including what to do about a capture with `total_events == 0`):
-[docs/API.md](docs/API.md).
+[docs/API.md](https://github.com/BKPT-Labs/ViewAlyzer-SDK/blob/main/docs/API.md).
