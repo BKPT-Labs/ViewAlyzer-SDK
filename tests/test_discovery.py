@@ -3,8 +3,8 @@ from pathlib import Path
 
 import pytest
 
-from viewalyzer_cli import BinaryNotFound, ENV_VAR, find_viewalyzer
-from viewalyzer_cli.discovery import find_viewalyzer_with_source
+from viewalyzer_sdk import BinaryNotFound, ENV_VAR, find_viewalyzer
+from viewalyzer_sdk.discovery import find_viewalyzer_with_source
 
 
 def _make_exe(tmp_path: Path, name: str) -> Path:

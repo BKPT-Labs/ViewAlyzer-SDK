@@ -2,15 +2,15 @@
 
 This is the only module that knows about argv, stdio, exit codes, and the
 JSON envelope. Everything above it works with parsed dicts or a raised
-:class:`~viewalyzer_cli.errors.ViewAlyzerError`.
+:class:`~viewalyzer_sdk.errors.ViewAlyzerError`.
 
 Contract (see the ViewAlyzer CLI Integration Guide):
 
 - every invocation is ``<binary> --headless <mode flags...>``: one process,
-  one job, one payload, exit - no daemon, no session state.
+  one job, one payload, exit. No daemon, no session state.
 - query/list modes print exactly one JSON object on stdout. On failure they
   print an *error envelope* (``{"error": <code>, ...}``), usually with a
-  non-zero exit code - the envelope, not the exit code, is the failure
+  non-zero exit code. The envelope, not the exit code, is the failure
   signal.
 - capture modes print human-readable progress lines instead; those are
   handled by the client, not here.
@@ -28,7 +28,7 @@ from .errors import ViewAlyzerError, raise_for_envelope
 #: Default timeout for query/list calls (captures compute their own from the
 #: requested duration).
 DEFAULT_QUERY_TIMEOUT_S = 30.0
-#: Headroom added on top of a capture's duration before we give up on it.
+#: Headroom added on top of a capture's duration before giving up on it.
 RECORD_TIMEOUT_PAD_S = 15.0
 
 #: What callers may pass as "the binary": a path, or a full argv prefix

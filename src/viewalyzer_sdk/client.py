@@ -1,6 +1,6 @@
 """High-level client for the ViewAlyzer headless CLI.
 
-    from viewalyzer_cli import ViewAlyzer
+    from viewalyzer_sdk import ViewAlyzer
 
     va = ViewAlyzer()                      # finds the installed app
     rec = va.record("board.vacf", output="run1.vadb", duration_s=10)
@@ -30,28 +30,39 @@ from .runner import (
     Runner,
 )
 
-#: The agent wire-protocol version these bindings were written against.
+#: The agent wire-protocol version this SDK was written against.
 #: Check the CLI's own value once via :meth:`ViewAlyzer.version`.
 SCHEMA_VERSION = 1
 
-#: Query verbs that accept ``--tier``.
+#: Query verbs with three tiers (``summary`` | ``bucketed`` | ``raw``).
 TIERED_VERBS = ("timeline", "events", "user-traces")
-#: Verbs without tiers (full reports / SQL).
+#: Query verbs with two tiers (``summary`` | ``raw``).
+TWO_TIER_VERBS = ("timers", "etm")
+#: Query verbs without tiers.
 UNTIERED_VERBS = (
     "inversions",
+    "cpu",
+    "comms",
+    "series",
+    "sql",
+    "fingerprint",
+    "compare",
     "slices",
     "slice-details",
     "events-all",
     "user-traces-all",
-    "sql",
 )
-QUERY_VERBS = (*TIERED_VERBS, *UNTIERED_VERBS)
+QUERY_VERBS = (*TIERED_VERBS, *TWO_TIER_VERBS, *UNTIERED_VERBS)
 
 # Stable stdout contracts of capture mode (see the CLI Integration Guide):
 #   [headless] Recording saved: /abs/path/run1.vadb (5576 KB)
 #   [headless] Recording registered: id=f76593b93473
 _RECORDING_SAVED_RE = re.compile(r"Recording saved:\s*(.+?)\s*\(\d+\s*KB\)")
 _RECORDING_ID_RE = re.compile(r"Recording registered:\s*id=([0-9a-f]{12})")
+
+#: Default timeout for :meth:`ViewAlyzer.snapshot` (probe attach + RAM read
+#: + parse; no capture duration is involved).
+DEFAULT_SNAPSHOT_TIMEOUT_S = 120.0
 
 PathLike = Union[str, Path]
 #: A connection config: a ``.vacf`` path, or an inline dict whose keys
@@ -98,14 +109,29 @@ class ViewAlyzer:
     def version(self) -> Dict[str, Any]:
         """``{"schema_version": 1, "app": "ViewAlyzer", "version": "1.2.0"}``.
         Call once at startup; if ``schema_version`` differs from
-        :data:`SCHEMA_VERSION`, response shapes may not match these
-        bindings."""
+        :data:`SCHEMA_VERSION`, response shapes may not match this SDK."""
         return self._runner.run_json(["--version"], self._query_timeout_s)
 
-    def get_license(self) -> Dict[str, Any]:
-        """Activation state and effective policy caps (e.g. the maximum
-        recording duration)."""
-        return self._runner.run_json(["--get-license"], self._query_timeout_s)
+    def doctor(
+        self,
+        *,
+        jlink_path: Optional[PathLike] = None,
+        stlink_path: Optional[PathLike] = None,
+        cube_programmer_path: Optional[PathLike] = None,
+        arm_gdb_path: Optional[PathLike] = None,
+    ) -> Dict[str, Any]:
+        """Setup health check: every external tool and probe the app can
+        use, with resolved paths, versions, and a ``hint`` for anything
+        missing. Returns ``{"checks": [{"id", "name", "required", "status":
+        "ok"|"missing"|"none", "path"?, "version"?, "detail", "hint"?},
+        ...], "app_version", ...}``. A missing optional tool is a report
+        entry, not an error. Tool-path arguments are optional overrides,
+        same as the capture flags."""
+        args: List[Any] = ["--doctor"]
+        args += _tool_path_flags(
+            jlink_path, stlink_path, cube_programmer_path, arm_gdb_path
+        )
+        return self._runner.run_json(args, max(self._query_timeout_s, 60.0))
 
     def analyze_memory(
         self, elf: PathLike, *, map_file: Optional[PathLike] = None
@@ -136,16 +162,34 @@ class ViewAlyzer:
         ``{"probes": [{"type": "jlink"|"stlink", "serial", "description"}],
         "warnings": [...]?}``. Pass a serial to a capture via the
         ``jlink-serial`` / ``stlink-serial`` config keys when more than one
-        probe is attached (with a single probe the servers auto-select).
+        probe is attached (with a single probe the drivers auto-select).
         Tool paths are optional overrides for the probe enumerators."""
         args: List[Any] = ["--list-probes"]
-        if jlink_path is not None:
-            args += ["--jlink", str(jlink_path)]
-        if stlink_path is not None:
-            args += ["--stlink", str(stlink_path)]
-        if cube_programmer_path is not None:
-            args += ["--cube-programmer", str(cube_programmer_path)]
+        args += _tool_path_flags(jlink_path, stlink_path, cube_programmer_path, None)
         return self._runner.run_json(args, self._query_timeout_s)
+
+    # ----- licensing ------------------------------------------------------
+
+    def get_license(self) -> Dict[str, Any]:
+        """Local license state and effective policy caps (e.g. the maximum
+        recording duration). Read-only; never contacts the license
+        server."""
+        return self._runner.run_json(["--get-license"], self._query_timeout_s)
+
+    def activate_license(self, key: str, *, timeout_s: float = 60.0) -> Dict[str, Any]:
+        """Activate this machine with a license key (contacts the license
+        server; requires network)."""
+        return self._runner.run_json(["--activate-license", key], timeout_s)
+
+    def validate_license(self, *, timeout_s: float = 60.0) -> Dict[str, Any]:
+        """Refresh this machine's license state against the license server
+        (requires network)."""
+        return self._runner.run_json(["--validate-license"], timeout_s)
+
+    def deactivate_license(self, *, timeout_s: float = 60.0) -> Dict[str, Any]:
+        """Release this machine's license seat (contacts the license
+        server; requires network)."""
+        return self._runner.run_json(["--deactivate-license"], timeout_s)
 
     # ----- the recording index --------------------------------------------
 
@@ -154,8 +198,8 @@ class ViewAlyzer:
         return self._runner.run_json(["--list-recordings"], self._query_timeout_s)
 
     def recordings(self) -> List[Recording]:
-        """The recording index as bound :class:`Recording` handles, newest
-        entries as the CLI orders them."""
+        """The recording index as bound :class:`Recording` handles, in the
+        CLI's order (newest first)."""
         result = []
         for entry in self.list_recordings().get("recordings") or []:
             result.append(
@@ -195,6 +239,9 @@ class ViewAlyzer:
         *,
         output: PathLike,
         duration_s: float,
+        elf: Optional[PathLike] = None,
+        symbols: Union[str, Sequence[str]] = (),
+        poll_hz: Optional[int] = None,
         extra_flags: Sequence[str] = (),
         timeout_s: Optional[float] = None,
     ) -> Recording:
@@ -202,27 +249,50 @@ class ViewAlyzer:
 
         *config* is a ``.vacf`` path or an inline dict with the same
         keys (``transport``, ``target-device``, ``cpu-clock-hz``, tool
-        paths, ...). *extra_flags* are appended verbatim for flags without a
-        dedicated parameter (e.g. ``["--log", path]`` or port overrides);
-        CLI flags win over config-file values. Returns a :class:`Recording`
-        whose ``path`` is the authoritative on-disk file - the CLI forces
-        the ``.vadb`` extension, so it may differ from *output*.
+        paths, ...). CLI flags win over config-file values.
+
+        Pass *elf* and *symbols* to add a symbol watch to the same capture:
+        the named variables are memory-polled over the debug probe while
+        the trace records (at *poll_hz*, if given) and land in the same
+        recording as extra traces. Each symbol is ``name`` or
+        ``name:type`` with type one of ``u8 u16 u32 i8 i16 i32 f32``.
+        For RAM-buffer transports, *elf* alone also lets the CLI resolve
+        the ring's control-block address from the firmware image.
+
+        *extra_flags* are appended verbatim for flags without a dedicated
+        parameter (e.g. ``["--log", path]`` or port overrides).
+
+        Returns a :class:`Recording` whose ``path`` is the authoritative
+        on-disk file; the CLI forces the ``.vadb`` extension, so it may
+        differ from *output*.
         """
+        symbols = _as_symbol_list(symbols)
+        args: List[Any] = [
+            "--output",
+            str(output),
+            "--duration",
+            duration_s,
+        ]
+        if elf is not None:
+            args += ["--elf", _existing(elf, "ELF")]
+        if symbols:
+            if elf is None:
+                raise ViewAlyzerError(
+                    "bad_arguments", "symbols need an elf to resolve against"
+                )
+            args += ["--symbols", ",".join(symbols)]
+        if poll_hz is not None:
+            args += ["--poll-hz", poll_hz]
+        args += list(extra_flags)
+
         timeout = timeout_s if timeout_s is not None else duration_s + RECORD_TIMEOUT_PAD_S
         with _config_path(config) as config_path:
-            r = self._runner.run(
-                [
-                    "--config",
-                    config_path,
-                    "--output",
-                    str(output),
-                    "--duration",
-                    duration_s,
-                    *extra_flags,
-                ],
-                timeout,
-            )
+            r = self._runner.run(["--config", config_path, *args], timeout)
         if r.exit_code != 0:
+            # A blocked capture may carry a machine-readable envelope on
+            # stdout (e.g. cooldown_active with retry_after_s); prefer its
+            # code over the generic one.
+            _raise_any_error_envelope(r.stdout)
             raise ViewAlyzerError("record_failed", _capture_failure_detail(r))
         combined = f"{r.stdout}\n{r.stderr}"
         saved = _RECORDING_SAVED_RE.search(combined)
@@ -244,7 +314,7 @@ class ViewAlyzer:
     def record_polls(
         self,
         elf: PathLike,
-        symbols: Sequence[str],
+        symbols: Union[str, Sequence[str]],
         *,
         duration_s: float,
         poll_hz: int = 100,
@@ -253,14 +323,16 @@ class ViewAlyzer:
         extra_flags: Sequence[str] = (),
         timeout_s: Optional[float] = None,
     ) -> Recording:
-        """Sample target variables over the debug probe - no firmware
+        """Sample target variables over the debug probe; no firmware
         instrumentation required. Needs a probe transport (not udp/serial).
 
         Pass *config* to reuse a connection file, or *target_device* (plus
         any tool-path flags via *extra_flags*, e.g. ``["--arm-gdb", path]``)
-        for config-less mode. Returns a :class:`Recording` with the poll
-        summary in ``info["summary"]``.
+        for config-less mode. Each symbol is ``name`` or ``name:type``.
+        Returns a :class:`Recording` with the poll summary in
+        ``info["summary"]``.
         """
+        symbols = _as_symbol_list(symbols)
         if not symbols:
             raise ViewAlyzerError("bad_arguments", "no symbols to poll")
         args: List[Any] = [
@@ -297,6 +369,44 @@ class ViewAlyzer:
             info=payload,
         )
 
+    def snapshot(
+        self,
+        config: ConfigSpec,
+        *,
+        output: PathLike,
+        elf: Optional[PathLike] = None,
+        extra_flags: Sequence[str] = (),
+        timeout_s: float = DEFAULT_SNAPSHOT_TIMEOUT_S,
+    ) -> Recording:
+        """Post-mortem snapshot: attach to the target WITHOUT reset, read
+        the firmware's RAM trace ring through the probe, and save the
+        recovered window as a normal ``.vadb`` recording.
+
+        Requires a RAM-buffer transport (``stlink-rambuf`` or
+        ``jlink-rambuf``) in *config*. There is no duration: the target
+        recorded untethered, this reads out what is in RAM. Pass *elf* (or
+        a ``rambuf-address`` config key) to skip the RAM scan for the
+        ring's control block.
+
+        Returns a :class:`Recording` with the snapshot summary (ring kind,
+        events, window bytes, wrap state, ...) in ``info["summary"]``.
+        Raises ``ViewAlyzerError("empty_snapshot", ...)`` when the ring
+        holds no parseable events."""
+        args: List[Any] = ["--snapshot", "--output", str(output)]
+        if elf is not None:
+            args += ["--elf", _existing(elf, "ELF")]
+        args += list(extra_flags)
+        with _config_path(config) as config_path:
+            payload = self._runner.run_json(
+                [*args, "--config", config_path], timeout_s
+            )
+        return Recording(
+            self,
+            recording_id=payload.get("recording_id"),
+            path=payload.get("path"),
+            info=payload,
+        )
+
     # ----- queries --------------------------------------------------------
 
     def query(
@@ -311,11 +421,15 @@ class ViewAlyzer:
         bucket_us: Optional[int] = None,
         max_slices: Optional[int] = None,
         sql: Optional[str] = None,
+        elf: Optional[PathLike] = None,
+        extra_flags: Sequence[str] = (),
         timeout_s: Optional[float] = None,
     ) -> Dict[str, Any]:
         """One ``--query`` call. Prefer the named helpers on
-        :class:`Recording`; this generic form exists for verbs and flags the
-        helpers don't cover (*max_slices* applies to ``slice-details``)."""
+        :class:`Recording`; this generic form exists for flag combinations
+        the helpers don't cover. *extra_flags* are appended verbatim (the
+        ``series`` and ``fingerprint`` helpers use this for their
+        verb-specific flags)."""
         if verb not in QUERY_VERBS:
             raise ViewAlyzerError(
                 "bad_arguments",
@@ -337,6 +451,9 @@ class ViewAlyzer:
             args += ["--max-slices", max_slices]
         if sql is not None:
             args += ["--sql", sql]
+        if elf is not None:
+            args += ["--elf", _existing(elf, "ELF")]
+        args += list(extra_flags)
         return self._runner.run_json(
             args, timeout_s if timeout_s is not None else self._query_timeout_s
         )
@@ -362,6 +479,47 @@ def _existing(path: PathLike, what: str) -> Path:
     if not p.is_file():
         raise ViewAlyzerError("file_not_found", f"{what} not found: {p}")
     return p
+
+
+def _as_symbol_list(symbols: Union[str, Sequence[str]]) -> List[str]:
+    """Accept one symbol as a bare string, or any sequence of symbols."""
+    if isinstance(symbols, str):
+        return [symbols]
+    return list(symbols)
+
+
+def _raise_any_error_envelope(stdout: str) -> None:
+    """Scan capture-mode stdout for a JSON error envelope and raise it.
+    Capture output mixes progress lines with (at most one) envelope."""
+    for line in stdout.splitlines():
+        line = line.strip()
+        if line.startswith("{"):
+            try:
+                payload = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(payload, dict):
+                from .errors import raise_for_envelope
+
+                raise_for_envelope(payload)
+
+
+def _tool_path_flags(
+    jlink_path: Optional[PathLike],
+    stlink_path: Optional[PathLike],
+    cube_programmer_path: Optional[PathLike],
+    arm_gdb_path: Optional[PathLike],
+) -> List[str]:
+    flags: List[str] = []
+    if jlink_path is not None:
+        flags += ["--jlink", str(jlink_path)]
+    if stlink_path is not None:
+        flags += ["--stlink", str(stlink_path)]
+    if cube_programmer_path is not None:
+        flags += ["--cube-programmer", str(cube_programmer_path)]
+    if arm_gdb_path is not None:
+        flags += ["--arm-gdb", str(arm_gdb_path)]
+    return flags
 
 
 def _capture_failure_detail(r: Any) -> str:

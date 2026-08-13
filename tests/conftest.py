@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 
-from viewalyzer_cli import ViewAlyzer
+from viewalyzer_sdk import ViewAlyzer
 
 FAKE_CLI = Path(__file__).parent / "fake_viewalyzer.py"
 

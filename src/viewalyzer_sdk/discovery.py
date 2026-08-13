@@ -2,19 +2,23 @@
 
 Search order (first hit wins):
 
-1. The ``VIEWALYZER`` environment variable - an explicit path to the
+1. The ``VIEWALYZER`` environment variable: an explicit path to the
    executable. If set but pointing at a missing file this *raises* rather
-   than silently falling through: an explicit setting that is wrong should
-   be loud, not shadowed by whatever else is on the machine.
-2. ``PATH`` - both ``ViewAlyzer`` and ``viewalyzer`` are tried (Linux
+   than silently falling through, so a wrong explicit setting is loud
+   instead of being shadowed by whatever else is on the machine.
+2. ``PATH``: both ``ViewAlyzer`` and ``viewalyzer`` are tried (Linux
    installs symlink the lowercase name; Windows resolution appends ``.exe``
    automatically).
 3. Well-known install locations per OS:
+
    - Windows: ``%ProgramFiles%\\ViewAlyzer\\ViewAlyzer.exe`` and the
      per-user ``%LOCALAPPDATA%\\Programs\\ViewAlyzer\\ViewAlyzer.exe``.
    - macOS: ``/Applications/ViewAlyzer.app`` and ``~/Applications/...``.
    - Linux: ``/usr/local/bin/viewalyzer``, ``~/.local/bin/viewalyzer``,
      and an AppImage under ``/opt/ViewAlyzer``.
+
+You can always bypass discovery entirely by passing an explicit path (or
+argv prefix) to :class:`viewalyzer_sdk.ViewAlyzer`.
 """
 from __future__ import annotations
 

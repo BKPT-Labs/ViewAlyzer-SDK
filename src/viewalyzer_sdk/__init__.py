@@ -1,9 +1,9 @@
-"""viewalyzer-cli - Python bindings for the ViewAlyzer headless CLI.
+"""viewalyzer-sdk - Python SDK for the ViewAlyzer headless CLI.
 
 Automate trace capture, analytics queries, and regression assertions against
 real embedded targets from Python, pytest, and CI:
 
-    from viewalyzer_cli import ViewAlyzer
+    from viewalyzer_sdk import ViewAlyzer
 
     va = ViewAlyzer()
     rec = va.record("board.vacf", output="run1.vadb", duration_s=10)
@@ -12,7 +12,14 @@ real embedded targets from Python, pytest, and CI:
     top = rec.task_stats()[0]
     assert top["cpu_percent"] < 80
 """
-from .client import QUERY_VERBS, SCHEMA_VERSION, TIERED_VERBS, UNTIERED_VERBS, ViewAlyzer
+from .client import (
+    QUERY_VERBS,
+    SCHEMA_VERSION,
+    TIERED_VERBS,
+    TWO_TIER_VERBS,
+    UNTIERED_VERBS,
+    ViewAlyzer,
+)
 from .discovery import ENV_VAR, find_viewalyzer, find_viewalyzer_with_source
 from .errors import BinaryNotFound, ViewAlyzerError
 from .recording import Recording
@@ -30,6 +37,7 @@ __all__ = [
     "SCHEMA_VERSION",
     "QUERY_VERBS",
     "TIERED_VERBS",
+    "TWO_TIER_VERBS",
     "UNTIERED_VERBS",
     "__version__",
 ]

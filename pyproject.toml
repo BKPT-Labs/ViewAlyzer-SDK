@@ -3,9 +3,9 @@ requires = ["setuptools>=64"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "viewalyzer-cli"
+name = "viewalyzer-sdk"
 dynamic = ["version"]
-description = "Python bindings for the ViewAlyzer headless CLI - automate trace capture, queries, and regression tests in CI"
+description = "Python SDK for the ViewAlyzer headless CLI - automate embedded trace capture, queries, and regression tests in CI"
 readme = "README.md"
 license = { file = "LICENSE" }
 requires-python = ">=3.9"
@@ -37,7 +37,7 @@ dependencies = []
 dev = ["pytest>=7"]
 
 [project.scripts]
-viewalyzer-doctor = "viewalyzer_cli.__main__:main"
+viewalyzer-doctor = "viewalyzer_sdk.__main__:main"
 
 [project.urls]
 Homepage = "https://viewalyzer.net"
@@ -47,10 +47,10 @@ Documentation = "https://viewalyzer.net/docs.html"
 where = ["src"]
 
 [tool.setuptools.package-data]
-viewalyzer_cli = ["py.typed"]
+viewalyzer_sdk = ["py.typed"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 
 [tool.setuptools.dynamic]
-version = { attr = "viewalyzer_cli.__version__" }
+version = { attr = "viewalyzer_sdk.__version__" }

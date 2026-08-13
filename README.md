@@ -1,34 +1,34 @@
-# viewalyzer-cli
+# viewalyzer-sdk
 
-Python bindings for the **ViewAlyzer** headless CLI — automate embedded trace
+Python SDK for the **ViewAlyzer** headless CLI: automate embedded trace
 capture, analytics queries, and regression assertions from Python, pytest,
 and CI.
 
 ViewAlyzer records RTOS/baremetal trace streams from real targets (ST-Link
 SWO, J-Link RTT, RAM-buffer draining, UDP, serial) into self-describing
-`.vadb` recordings — standard SQLite files — and answers analytics queries
-about them as JSON. This package wraps that CLI so a hardware-in-the-loop
-test can be three lines of Python.
+`.vadb` recordings, which are standard SQLite files, and answers analytics
+queries about them as JSON. This package wraps that CLI so a
+hardware-in-the-loop test can be three lines of Python.
 
 ```python
-from viewalyzer_cli import ViewAlyzer
+from viewalyzer_sdk import ViewAlyzer
 
 va = ViewAlyzer()  # finds the installed ViewAlyzer app
 rec = va.record("board.vacf", output="run1.vadb", duration_s=10)
 
 assert rec.total_events > 0                      # capture actually captured
-assert rec.is_clean()                            # no corrupt bytes
+assert rec.is_clean()                            # no corruption, no loss
 assert rec.inversions()["inversions"] == []      # no priority inversions
 assert rec.task_stats()[0]["cpu_percent"] < 80   # CPU headroom held
 ```
 
-Zero dependencies — stdlib only. Requires a ViewAlyzer installation
+Zero dependencies, stdlib only. Requires a ViewAlyzer installation
 (the app is the engine; this package is the steering wheel).
 
 ## Install
 
 ```
-pip install viewalyzer-cli
+pip install viewalyzer-sdk
 ```
 
 Then check the wiring:
@@ -37,22 +37,26 @@ Then check the wiring:
 viewalyzer-doctor
 ```
 
-which prints the executable the bindings found (or how to point them at
-one) and the CLI's version handshake.
+which prints the executable the SDK found (or how to point it at one), the
+CLI's version handshake, and the app's own health check of external tools
+and attached probes.
 
 ## Finding the ViewAlyzer executable
 
 First hit wins:
 
-1. the `VIEWALYZER` environment variable (path to the executable) — set but
+1. the `VIEWALYZER` environment variable (path to the executable); set but
    wrong raises immediately rather than silently falling back;
 2. `PATH` (`ViewAlyzer` / `viewalyzer`, `.exe` implied on Windows);
-3. the standard install locations — `%ProgramFiles%\ViewAlyzer` and
+3. the standard install locations: `%ProgramFiles%\ViewAlyzer` and
    `%LOCALAPPDATA%\Programs\ViewAlyzer` on Windows, `/Applications` and
    `~/Applications` on macOS, `/usr/local/bin`, `~/.local/bin`, and
    `/opt/ViewAlyzer` on Linux.
 
-Or pass a path explicitly: `ViewAlyzer("/path/to/ViewAlyzer")`.
+Or pass a path explicitly: `ViewAlyzer("/path/to/ViewAlyzer")`. Nothing is
+ever hardcoded: every tool path the CLI uses (J-Link install dir,
+arm-none-eabi-gdb, ...) can be set through the connection config or the
+method arguments.
 
 ## Capturing
 
@@ -67,6 +71,10 @@ rec = va.record(
     output="ci-run.vadb",
     duration_s=10,
 )
+
+# Watch variables during the same capture (memory-polled over the probe):
+rec = va.record("board.vacf", output="run.vadb", duration_s=10,
+                elf="firmware.elf", symbols=["adc_value:u16"], poll_hz=200)
 ```
 
 `rec.path` is the authoritative on-disk file (the CLI forces the `.vadb`
@@ -80,9 +88,17 @@ rec = va.record_polls("firmware.elf", ["tick_counter", "adc_value"],
                       duration_s=10, poll_hz=100, config="board.vacf")
 ```
 
+And for firmware using the RAM-buffer transport, a post-mortem snapshot
+reads the trace ring out of target RAM without resetting anything:
+
+```python
+rec = va.snapshot("board.vacf", output="crash.vadb", elf="firmware.elf")
+print(rec.info["summary"])   # ring kind, events, window bytes, ...
+```
+
 ## Querying
 
-Tiered, size-bounded JSON via the CLI — start at `summary`, drill down:
+Tiered, size-bounded JSON via the CLI. Start at `summary`, drill down:
 
 ```python
 rec.timeline()                       # per-task CPU%, slice stats, jitter
@@ -90,14 +106,24 @@ rec.timeline(tier="bucketed", t_start_us=0, t_end_us=1_000_000,
              bucket_us=10_000)      # CPU% over time
 rec.events()                         # counts by kind, top tasks
 rec.user_traces()                    # data channels: min/max/mean/last
+rec.cpu()                            # the CPU panel's scheduler statistics
+rec.timers()                         # per-timer lateness stats, violations
+rec.comms()                          # producer -> consumer paths, latency
+rec.etm()                            # ETM call-tree profile (if captured)
+rec.series("cpu-load")               # timeline series as [[t_us, value], ...]
 rec.inversions()                     # every priority inversion, full story
 rec.sql("SELECT name, cpu_percent FROM va_task_stats "
         "ORDER BY cpu_percent DESC LIMIT 5")
 ```
 
-Tiered responses arrive in the CLI's envelope — the analytics live under
-the `data` key (`rec.timeline()["data"]["tasks"]`); the bindings pass the
-payload through unmodified.
+Golden-run regression testing distills a recording into a small,
+git-committable baseline and gates CI on deviations:
+
+```python
+rec.fingerprint(out="golden.vafp.json")       # commit this file
+result = new_rec.compare("golden.vafp.json")  # later runs
+assert result["verdict"] in ("pass", "warn")
+```
 
 And because a `.vadb` **is** a SQLite database, overview reads skip the
 subprocess entirely:
@@ -115,7 +141,7 @@ con = rec.connect()  # read-only sqlite3.Connection for anything else
 ```python
 # conftest.py
 import pytest
-from viewalyzer_cli import ViewAlyzer
+from viewalyzer_sdk import ViewAlyzer
 
 @pytest.fixture(scope="session")
 def va():
@@ -141,24 +167,24 @@ def test_control_task_period_jitter(rec):
 
 ## Error handling
 
-Everything raises `ViewAlyzerError` with a machine-readable `.code` — the
+Everything raises `ViewAlyzerError` with a machine-readable `.code`: the
 CLI's own envelope codes (`no_such_recording`, `bad_sql`, `bad_arguments`,
-`window_too_wide` — with `.suggestion` telling you how to narrow the
-window) plus the bindings' own (`binary_missing`, `timeout`, `bad_output`,
+`window_too_wide` with `.suggestion` telling you how to narrow the window)
+plus the SDK's own (`binary_missing`, `timeout`, `bad_output`,
 `record_failed`, `file_not_found`). Capture failures surface the CLI's
 `ERROR:` diagnostics (e.g. *Failed to connect to target*), not a bare exit
 code.
 
-## Portable configs on shared drives
+## Portable configs
 
 `.vacf` files committed with a project are portable *except* for
 machine-absolute tool paths (`jlink`, `arm-gdb`, ...). Don't edit the
-shared file for your machine — load it, override in memory, and pass the
+shared file for your machine: load it, override in memory, and pass the
 dict:
 
 ```python
 cfg = json.loads(Path("board.vacf").read_text())
-if not Path(cfg.get("jlink", "")).exists():          # path from another OS
+if not Path(cfg.get("jlink", "")).exists():          # path from another machine
     cfg["jlink"] = shutil.which("JLinkGDBServerCL") or cfg["jlink"]
 rec = va.record(cfg, output="run.vadb", duration_s=10)
 ```

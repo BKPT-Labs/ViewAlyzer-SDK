@@ -2,7 +2,7 @@ import sqlite3
 
 import pytest
 
-from viewalyzer_cli import Recording, ViewAlyzerError
+from viewalyzer_sdk import Recording, ViewAlyzerError
 
 
 def test_summary_and_total_events(va, vadb):

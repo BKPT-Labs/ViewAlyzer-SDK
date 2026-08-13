@@ -7,6 +7,13 @@ import json
 import sqlite3
 import sys
 
+QUERY_VERBS = {
+    "timeline", "events", "user-traces", "timers", "etm",
+    "inversions", "cpu", "comms", "series", "sql",
+    "fingerprint", "compare",
+    "slices", "slice-details", "events-all", "user-traces-all",
+}
+
 
 def make_vadb(path, total_events=1234, seq_present=True, lost_events=0, seq_gaps=0):
     con = sqlite3.connect(path)
@@ -58,6 +65,82 @@ def emit(obj, code=0):
     return code
 
 
+def handle_query(a):
+    verb = val(a, "--query")
+    if verb not in QUERY_VERBS:
+        return emit({"error": "bad_arguments", "message": "unknown --query kind"}, 1)
+    if val(a, "--recording") is None:
+        return emit({"error": "bad_arguments", "message": "--recording required"}, 1)
+    if verb == "sql":
+        sql = val(a, "--sql") or ""
+        if "boom" in sql:
+            return emit({"error": "bad_sql", "message": "no such table: boom"}, 1)
+        return emit(
+            {
+                "schema_version": 1,
+                "query": "sql",
+                "columns": ["name", "cpu"],
+                "rows": [["idle", 66.1], ["sensor_tid", 9.0]],
+                "row_count": 2,
+                "truncated": False,
+            }
+        )
+    if verb == "series":
+        kind = val(a, "--kind")
+        if kind is None:
+            return emit({"error": "bad_arguments", "message": "--kind required"}, 1)
+        if kind == "task-timing" and val(a, "--task") is None:
+            return emit({"error": "bad_arguments", "message": "--task required"}, 1)
+        if kind == "interval" and (val(a, "--from") is None or val(a, "--to") is None):
+            return emit({"error": "bad_arguments", "message": "--from/--to required"}, 1)
+        return emit(
+            {"schema_version": 1, "query": "series", "kind": kind,
+             "points": [[0, 1.0], [500000, 2.0]]}
+        )
+    if verb == "fingerprint":
+        payload = {
+            "schema_version": 1,
+            "query": "fingerprint",
+            "sections": (val(a, "--sections") or "summary,tasks").split(","),
+            "runs_merged": len((val(a, "--runs") or "").split(",")) if val(a, "--runs") else 1,
+            "metrics": {"summary.event_rate_hz": {"value": 138.2}},
+        }
+        out = val(a, "--out")
+        if out:
+            with open(out, "w", encoding="utf-8") as f:
+                json.dump(payload, f)
+            payload["out"] = out
+        return emit(payload)
+    if verb == "compare":
+        baseline = val(a, "--baseline")
+        if baseline is None:
+            return emit({"error": "bad_arguments", "message": "--baseline required"}, 1)
+        if "failing" in baseline:
+            # A fail verdict is a valid payload with exit code 2, NOT an
+            # error envelope - the CI-gate contract.
+            return emit(
+                {"schema_version": 1, "query": "compare", "verdict": "fail",
+                 "results": [{"metric": "summary.event_rate_hz", "status": "fail"}]},
+                2,
+            )
+        return emit(
+            {"schema_version": 1, "query": "compare", "verdict": "pass", "results": []}
+        )
+    if verb == "timeline" and val(a, "--tier") == "bucketed":
+        if val(a, "--bucket-us") is None:
+            return emit({"error": "bad_arguments", "message": "--bucket-us required"}, 1)
+    return emit(
+        {
+            "schema_version": 1,
+            "query": verb,
+            "tier": val(a, "--tier"),
+            "budget": val(a, "--budget") or "med",
+            "elf": val(a, "--elf"),
+            "inversions": [] if verb == "inversions" else None,
+        }
+    )
+
+
 def main():
     argv = sys.argv[1:]
     if not argv or argv[0] != "--headless":
@@ -69,8 +152,35 @@ def main():
     if "--version" in a:
         return emit({"schema_version": 1, "app": "ViewAlyzer", "version": "9.9.9"})
 
+    if "--doctor" in a:
+        return emit(
+            {
+                "schema_version": 1,
+                "app_version": "9.9.9",
+                "checks": [
+                    {"id": "libusb", "name": "libusb", "required": True,
+                     "status": "ok", "version": "1.0.27", "detail": "loaded"},
+                    {"id": "jlink_library", "name": "SEGGER J-Link library",
+                     "required": False, "status": "missing",
+                     "detail": "not found", "hint": "Install the J-Link Software Pack"},
+                ],
+            }
+        )
+
     if "--get-license" in a:
         return emit({"schema_version": 1, "activated": False, "max_record_s": 30})
+
+    if "--activate-license" in a:
+        key = val(a, "--activate-license")
+        if key == "BAD-KEY":
+            return emit({"error": "activation_failed", "message": "unknown key"}, 1)
+        return emit({"schema_version": 1, "activated": True, "tier": "pro"})
+
+    if "--validate-license" in a:
+        return emit({"schema_version": 1, "activated": True, "state": "active"})
+
+    if "--deactivate-license" in a:
+        return emit({"schema_version": 1, "activated": False})
 
     if "--list-recordings" in a:
         return emit(
@@ -105,7 +215,10 @@ def main():
         return emit(
             {
                 "schema_version": 1,
-                "symbol_legend": [
+                "total_symbols": 1,
+                "returned": 1,
+                "truncated": False,
+                "symbols": [
                     {"name": "tick_counter", "address": 536870928, "size": 4}
                 ],
             }
@@ -120,35 +233,33 @@ def main():
         return emit({"schema_version": 1, "deleted": which})
 
     if "--query" in a:
-        verb = val(a, "--query")
-        if val(a, "--recording") is None:
-            return emit({"error": "bad_arguments", "message": "--recording required"}, 1)
-        if verb == "sql":
-            sql = val(a, "--sql") or ""
-            if "boom" in sql:
-                return emit({"error": "bad_sql", "message": "no such table: boom"}, 1)
+        return handle_query(a)
+
+    if "--snapshot" in a:
+        with open(val(a, "--config"), "r", encoding="utf-8") as f:
+            cfg = json.load(f)
+        if cfg.get("transport") not in ("stlink-rambuf", "jlink-rambuf"):
             return emit(
-                {
-                    "schema_version": 1,
-                    "query": "sql",
-                    "columns": ["name", "cpu"],
-                    "rows": [["idle", 66.1], ["sensor_tid", 9.0]],
-                    "row_count": 2,
-                    "truncated": False,
-                }
+                {"error": "bad_arguments",
+                 "message": "--snapshot needs a rambuf transport"}, 1
             )
-        if verb == "timeline" and val(a, "--tier") == "bucketed":
-            if val(a, "--bucket-us") is None:
-                return emit(
-                    {"error": "bad_arguments", "message": "--bucket-us required"}, 1
-                )
+        if cfg.get("rambuf-address") == "0xEMPTY":
+            return emit(
+                {"error": "empty_snapshot",
+                 "message": "The snapshot window parsed to 0 events"}, 1
+            )
+        out = val(a, "--output")
+        if not out.endswith(".vadb"):
+            out = out.rsplit(".", 1)[0] + ".vadb"
+        make_vadb(out, total_events=777)
+        print("[headless] Snapshot saved: %s" % out, file=sys.stderr)
         return emit(
             {
                 "schema_version": 1,
-                "query": verb,
-                "tier": val(a, "--tier"),
-                "budget": val(a, "--budget") or "med",
-                "inversions": [] if verb == "inversions" else None,
+                "recording_id": "5aa9d4114f00",
+                "path": out,
+                "summary": {"ring": "post-mortem", "events": 777,
+                            "window_bytes": 4096, "wrapped": True, "frozen": True},
             }
         )
 
@@ -171,11 +282,25 @@ def main():
             print("[headless] Connecting...")
             print("[headless] ERROR: Failed to connect to target")
             return 1
+        if cfg.get("transport") == "cooldown":
+            # Capture mode mixes progress lines with the error envelope.
+            print("[headless] Free mode max capture applied.")
+            print(json.dumps({"schema_version": 1, "error": "cooldown_active",
+                              "message": "wait 42 s", "retry_after_s": 42}))
+            print("[headless] ERROR: Capture cooldown active (42 s remaining).",
+                  file=sys.stderr)
+            return 1
+        if "--symbols" in a and "--elf" not in a:
+            print("[headless] ERROR: --symbols requires --elf")
+            return 1
         out = val(a, "--output")
         if not out.endswith(".vadb"):  # the real binary forces the extension
             out = out.rsplit(".", 1)[0] + ".vadb"
         make_vadb(out)
         print("[headless] Recording...")
+        if "--symbols" in a:
+            print("[headless] Activating MemoryPoller with %d symbol(s)"
+                  % len(val(a, "--symbols").split(",")))
         print("[headless] Recording saved: %s (12 KB)" % out)
         print("[headless] Recording registered: id=abcdef123456")
         return 0
