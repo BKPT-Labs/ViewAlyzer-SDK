@@ -51,6 +51,7 @@ viewalyzer_sdk = ["py.typed"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+pythonpath = ["src"]
 
 [tool.setuptools.dynamic]
 version = { attr = "viewalyzer_sdk.__version__" }
