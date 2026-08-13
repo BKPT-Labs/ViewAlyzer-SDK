@@ -10,7 +10,7 @@ Publishing (OIDC, no stored tokens). All commands run from the repo root.
    - PyPI Project Name: `viewalyzer-sdk`
    - Owner: `BKPT-Labs`
    - Repository name: `ViewAlyzer-SDK`
-   - Workflow name: `workflow.yaml`
+   - Workflow name: `workflow.yml`
    - Environment name: `pypi`
 2. On GitHub: repo Settings -> Environments -> create an environment named
    `pypi`. Optionally add required reviewers to gate releases.
@@ -29,7 +29,7 @@ git tag v1.0.1
 git push origin main v1.0.1
 ```
 
-The tag push triggers `.github/workflows/workflow.yaml`: it runs the tests,
+The tag push triggers `.github/workflows/workflow.yml`: it runs the tests,
 builds the sdist and wheel, and publishes to PyPI through the trusted
 publisher. Watch the run under the repo's Actions tab.
 
