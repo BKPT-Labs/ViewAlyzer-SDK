@@ -17,7 +17,7 @@ va = ViewAlyzer()  # finds the installed ViewAlyzer app
 rec = va.record("board.vacf", output="run1.vadb", duration_s=10)
 
 assert rec.total_events > 0                      # capture actually captured
-assert rec.is_clean()                            # no corruption, no loss
+assert rec.is_clean                              # no corruption, no loss
 assert rec.inversions()["inversions"] == []      # no priority inversions
 assert rec.task_stats()[0]["cpu_percent"] < 80   # CPU headroom held
 ```

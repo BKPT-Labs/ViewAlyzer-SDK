@@ -250,7 +250,7 @@ A `.vadb` is a standard SQLite database; these readers open it read-only.
 | `has_sequence_info` (property) | True when the recorder stamped packets with sequence numbers (wire protocol v3). Only then can loss be *proven*. |
 | `lost_events` (property) | Exact count of emitted packets that never arrived, from the v3 sequence counter. 0 without sequence info means "unknown", not "verified zero". |
 | `seq_gaps` (property) | Number of distinct loss bursts behind `lost_events`. |
-| `is_clean()` | `corrupt_bytes == 0` **and** `lost_events == 0`: every emitted event made it into the recording. |
+| `is_clean` (property) | `corrupt_bytes == 0` **and** `lost_events == 0`: every emitted event made it into the recording. (Was a method through 1.0.0; the call form still works with a `DeprecationWarning`.) |
 | `task_stats(include_synthetic=False)` | `va_task_stats` rows as dicts, highest CPU first. Synthetic lanes (`_RTOS_`, `ISR:*`, `Fn:*`) filtered unless requested. Columns include `cpu_percent`, `run_count`, `avg_period_us`, `min/max_jitter_us`, `priority`, `stack_used_bytes`, `mutex_contentions`, ... |
 | `meta()` | Provenance: `va_cpu_hz`, `va_os`, `capture_source`, ... |
 | `connect()` | A read-only `sqlite3.Connection` for anything else (full schema: `va_events`, `va_objects`, `va_trace_stats`, `health`). Caller closes it. |
@@ -324,7 +324,7 @@ def rec(va, tmp_path_factory):
     out = tmp_path_factory.mktemp("trace") / "ci.vadb"
     r = va.record("board.vacf", output=out, duration_s=10)
     assert r.total_events > 0, "empty capture - probe or firmware setup broken"
-    assert r.is_clean()
+    assert r.is_clean
     return r
 
 def test_no_priority_inversions(rec):

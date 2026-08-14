@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import sqlite3
 import urllib.parse
+import warnings
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Sequence, Union
 
@@ -29,6 +30,24 @@ if TYPE_CHECKING:  # pragma: no cover - import cycle guard
 
 Number = Union[int, float, str, None]
 PathLike = Union[str, Path]
+
+
+class _CallableBool(int):
+    """Transitional return type for :attr:`Recording.is_clean`, which was a
+    method through 1.0.0 and is a property now (matching ``total_events`` and
+    friends). Behaves as a plain bool; calling it keeps the old form working
+    with a :class:`DeprecationWarning`. Removed in 2.0."""
+
+    def __call__(self) -> bool:
+        warnings.warn(
+            "Recording.is_clean is now a property; drop the parentheses",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return bool(self)
+
+    def __repr__(self) -> str:  # pragma: no cover - cosmetic
+        return repr(bool(self))
 
 
 class Recording:
@@ -46,6 +65,13 @@ class Recording:
         path: Union[str, Path, None] = None,
         info: Optional[Dict[str, Any]] = None,
     ) -> None:
+        if isinstance(client, (str, Path)):
+            raise ViewAlyzerError(
+                "bad_arguments",
+                f"Recording's first argument is the ViewAlyzer client, not a "
+                f"path (got {str(client)!r}). Open a file with "
+                f"ViewAlyzer().open(path).",
+            )
         if recording_id is None and path is None:
             raise ViewAlyzerError(
                 "bad_arguments", "a Recording needs a recording_id or a path"
@@ -314,12 +340,16 @@ class Recording:
         """Number of distinct loss bursts behind :attr:`lost_events`."""
         return int(self.summary().get("seq_gaps") or 0)
 
+    @property
     def is_clean(self) -> bool:
         """True when the capture had no corrupt bytes AND no sequence-counter
         loss. This is the assertion to use for "every emitted event made it
         into the recording": corrupt bytes measure damage to what arrived,
-        lost events measure what never arrived at all."""
-        return (
+        lost events measure what never arrived at all.
+
+        A property since 1.0.1 (was a method); the call form still works
+        through 1.x with a DeprecationWarning."""
+        return _CallableBool(
             int(self.summary().get("corrupt_bytes") or 0) == 0
             and self.lost_events == 0
         )
