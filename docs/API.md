@@ -308,6 +308,27 @@ if not Path(cfg.get("jlink", "")).exists():
 rec = va.record(cfg, output="run.vadb", duration_s=10)
 ```
 
+### Pinning hardware trace per board (`hardware-trace` block)
+
+DWT streaming options and the on-chip (ETM) capture profile, ETR RAM window,
+run time and filter live in one config block, so a board's `.vacf` carries
+them and the same dict works for `record()`:
+
+```python
+cfg = json.loads(Path("board.vacf").read_text())
+cfg["hardware-trace"] = {
+    "chip": "auto",                                   # or a token from `--onchip-scan list`
+    "etr-window": {"base": "0x34180000", "size": "0x40000"},
+    "dwt": {"enable": True, "exception-trace": True, "pc-sample-cyc": 16384,
+            "watch": ["0x20020e08:4"]},
+}
+rec = va.record(cfg, output="run.vadb", duration_s=10)   # DWT rows land in the .vadb
+```
+
+The engine validates `etr-window` against the chip profile's permitted RAM
+region; flags passed to the CLI still win over the file. See the App's
+CLI Integration Guide, "Hardware trace in the config file", for every key.
+
 ### Verifying a pinned RTT address before capturing
 
 ```python
