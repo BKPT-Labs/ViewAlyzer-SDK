@@ -124,6 +124,25 @@ announce themselves (a new firmware trace can appear mid-capture).
 far; use the stream for display and the returned `Recording` for
 analysis, where timestamps are exact device-clock values.
 
+Three kinds of channel stream, and none needs the others:
+
+| Channel | Firmware requirement | How |
+|---|---|---|
+| User traces (`VA_LogTrace`) | recorder integrated | just `--stream`; announced as their setup packets arrive |
+| Polled symbols | **none** | `elf=` + `symbols=` (+ `poll_hz=`); software-polled over the probe, any transport |
+| DWT data watches | **none** | `extra_flags=["--dwt", "--dwt-watch", "beat@0x20000008:4,work@0x20000004:4"]`; hardware comparators catch **every write** (up to 4, SWO transports); your `name@` labels come back as `sample.name` |
+
+### What does not stream
+
+The live feed is **data channels only**: named series of timestamped
+values. Everything else the capture records still lands in the `.vadb`
+but is not emitted live, deliberately: task/scheduler slices (the point
+of slices is seeing the swarm of them on a zoomable timeline, which is a
+GUI, not an iterator), PC samples and the statistical profile, exception
+trace, firmware string messages, and live CPU load. For those, open the
+recording in the ViewAlyzer app, or query the finished `Recording`
+(`timeline()`, `cpu()`, `events()`, ...) after the capture.
+
 ## Querying
 
 Tiered, size-bounded JSON via the CLI. Start at `summary`, drill down:

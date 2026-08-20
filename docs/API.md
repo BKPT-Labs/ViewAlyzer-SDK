@@ -176,6 +176,22 @@ every polled-symbol sample is also delivered live. Returns immediately,
 with the CLI still connecting; `timeout_s` bounds the whole session
 (default `duration_s` plus connect/finalize headroom).
 
+DWT data watches stream too, and need no firmware instrumentation at
+all: pass `extra_flags=["--dwt", "--dwt-watch",
+"name@0xADDR[:size],..."]` on an SWO transport and the hardware
+comparators (up to 4) deliver **every write** to those addresses as
+samples, with your `name@` labels coming back as `sample.name` (ids are
+`224 + comparator#`; the labels need an app build newer than 1.0.3,
+older ones stream the samples with `name=None`).
+
+**Scope: the stream carries data channels only** (named series of
+timestamped values). Task/scheduler slices, PC samples / the statistical
+profile, exception trace, firmware string messages, and live CPU load
+are all still captured into the `.vadb` but are not emitted live; view
+those in the ViewAlyzer app or query the finished `Recording` after the
+capture. In particular, slices are best consumed as the app's zoomable
+timeline, not as an event feed.
+
 ```python
 class StreamSession   # context manager + iterator, single-consumer
 ```

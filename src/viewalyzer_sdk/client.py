@@ -344,9 +344,11 @@ class ViewAlyzer:
         :class:`~viewalyzer_sdk.streaming.StreamSession` immediately, while
         the CLI is still connecting. Iterate the session for
         :class:`~viewalyzer_sdk.streaming.StreamSample` points as they
-        arrive (firmware user traces and polled symbols alike), stop early
-        with :meth:`~viewalyzer_sdk.streaming.StreamSession.stop`, and take
-        the finished Recording from
+        arrive (firmware user traces, polled symbols, and ``--dwt-watch``
+        hardware watches via *extra_flags*; NOT slices, PC samples, or
+        other timeline events, which land in the recording only), stop
+        early with :meth:`~viewalyzer_sdk.streaming.StreamSession.stop`,
+        and take the finished Recording from
         :meth:`~viewalyzer_sdk.streaming.StreamSession.result`::
 
             with va.stream("board.vacf", output="run.vadb",

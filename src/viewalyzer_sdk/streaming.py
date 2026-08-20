@@ -3,9 +3,15 @@
 With ``--stream``, the headless CLI emits one JSON object per line on
 **stderr** while a capture records: a ``stream_init`` banner first, a
 ``stream_meta`` line per discovered stream (firmware-emitted user traces
-as their setup packets arrive, ``--symbols`` polls up front), one
-``stream_sample`` per point, and ``stream_end`` when the capture
-finalizes. Everything else on stderr stays a plain diagnostic line.
+as their setup packets arrive; ``--symbols`` polls and ``--dwt-watch``
+comparators up front), one ``stream_sample`` per point, and
+``stream_end`` when the capture finalizes. Everything else on stderr
+stays a plain diagnostic line.
+
+The feed carries data channels only: named series of timestamped values.
+Task/scheduler slices, PC samples, exception trace, string messages, and
+live CPU load are captured into the ``.vadb`` but not emitted live; view
+those in the app or query the finished Recording.
 
 :class:`StreamSession` wraps that feed for hosts that want to graph or
 react to trace data while the recording is still being written (an IDE
