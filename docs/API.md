@@ -7,6 +7,9 @@ import:
 from viewalyzer_sdk import (
     ViewAlyzer,        # the client
     Recording,         # a handle on one .vadb recording
+    StreamSession,     # a live capture: iterate samples, then result()
+    StreamSample,      # one live data point
+    StreamMeta,        # one announced stream (id, name, type)
     ViewAlyzerError,   # every failure, CLI-side or SDK-side
     BinaryNotFound,    # subclass: executable couldn't be located
     find_viewalyzer,   # discovery as a standalone function
@@ -16,7 +19,9 @@ from viewalyzer_sdk import (
 
 Design in one sentence: every method is **one CLI invocation** (one process,
 one JSON payload, exit) except the direct-SQLite readers on `Recording`,
-which open the `.vadb` file itself read-only and involve no subprocess.
+which open the `.vadb` file itself read-only and involve no subprocess, and
+`stream()`, whose one CLI invocation stays alive for the capture and is
+wrapped in a `StreamSession`.
 
 ---
 
@@ -156,6 +161,60 @@ and drop rings (single-shot dump from boot until the ring filled).
 snapshot summary (ring kind, events, window bytes, wrap/freeze state)
 lands in `Recording.info["summary"]`. An empty or unparseable ring raises
 `ViewAlyzerError("empty_snapshot", ...)`.
+
+### Live streaming
+
+```python
+stream(config, *, output, duration_s, elf=None, symbols=(), poll_hz=None,
+       extra_flags=(), timeout_s=None) -> StreamSession
+```
+
+The same capture as `record()` (same `config` / `elf` / `symbols` /
+`poll_hz` semantics, same `.vadb` landing on disk), started with the CLI's
+`--stream` tap: while the capture runs, every firmware user-trace point and
+every polled-symbol sample is also delivered live. Returns immediately,
+with the CLI still connecting; `timeout_s` bounds the whole session
+(default `duration_s` plus connect/finalize headroom).
+
+```python
+class StreamSession   # context manager + iterator, single-consumer
+```
+
+- **Iterate** it for `StreamSample` points in arrival order, across all
+  streams. Iteration ends when the capture does (duration reached, `stop()`
+  honored, or the CLI exited); it raises `ViewAlyzerError("timeout")` and
+  kills the CLI if the session deadline passes first.
+- `stop()`: finalize now, keep everything captured so far. Non-blocking;
+  keep iterating (or call `result()`) to see the capture out. Works on all
+  three OSes via the CLI's `--stop-file` channel (plus SIGINT on POSIX).
+  CLI builds older than `--stop-file` still stop on POSIX; on Windows they
+  run to `duration_s`.
+- `result(timeout_s=None) -> Recording`: wait for the CLI to exit and
+  return the finished recording, with the same success checks and
+  `ViewAlyzerError("record_failed", ...)` diagnostics as `record()`.
+  Idempotent; call it after the `with` block.
+- `close()` (or leaving the `with` block): stops a still-running capture
+  and cleans up temp files. Always use the context manager so an abandoned
+  session cannot leave a CLI process behind.
+- Live views while capturing: `streams` (dict of id to `StreamMeta`; grows
+  as firmware traces register, `--symbols` polls are pre-announced),
+  `init` (the CLI's `stream_init` banner), `log` (recent non-stream
+  diagnostic stderr lines), `pid`, `returncode`.
+
+```python
+@dataclass(frozen=True)
+class StreamMeta:     # id: int, name: str, type: str
+@dataclass(frozen=True)
+class StreamSample:   # id, t_us, value, is_float, name, stream_type
+```
+
+`StreamSample.t_us` is microseconds on the **arrival timeline** (t=0 at
+the session's first sample), sized for plotting; the recording on disk
+keeps exact device-clock timestamps, so run analysis on the `Recording`,
+not on streamed samples. `name` / `stream_type` resolve from the stream's
+meta line and can be `None` for a point that outran its registration.
+`type` is the firmware's presentation kind: `graph`, `counter`, `gauge`,
+`bar`, `toggle`, `histogram`, `table`, `angle`, `register`, `task`, `isr`.
 
 ### Generic query escape hatch
 

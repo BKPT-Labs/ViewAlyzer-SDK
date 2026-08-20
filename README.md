@@ -97,6 +97,33 @@ rec = va.snapshot("board.vacf", output="crash.vadb", elf="firmware.elf")
 print(rec.info["summary"])   # ring kind, events, window bytes, ...
 ```
 
+## Live streaming
+
+`stream()` runs the same capture as `record()` but hands you the data
+points **while the capture runs**: firmware user traces (`VA_LogTrace`)
+and polled symbols arrive as an iterator of samples, ready to graph in a
+UI, feed a dashboard, or watch for a trigger condition. The same `.vadb`
+recording still lands on disk; the stream is a tap, not a diversion.
+
+```python
+with va.stream("board.vacf", output="run.vadb", duration_s=60,
+               elf="firmware.elf", symbols=["adc_value:u16"]) as s:
+    for sample in s:                     # live, in arrival order
+        chart.add(sample.name, sample.t_s, sample.value)
+        if sample.name == "adc_value" and sample.value > 4000:
+            s.stop()                     # finalize early, keep the partial
+
+rec = s.result()                         # the finished Recording
+assert rec.total_events > 0
+```
+
+Each `StreamSample` has `id`, `name`, `t_us` (and `t_s`), `value`, and
+`is_float`; `s.streams` maps ids to `StreamMeta(name, type)` as streams
+announce themselves (a new firmware trace can appear mid-capture).
+`stop()` is portable, including Windows, and keeps everything captured so
+far; use the stream for display and the returned `Recording` for
+analysis, where timestamps are exact device-clock values.
+
 ## Querying
 
 Tiered, size-bounded JSON via the CLI. Start at `summary`, drill down:

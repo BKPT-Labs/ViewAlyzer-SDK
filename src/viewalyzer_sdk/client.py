@@ -18,7 +18,16 @@ import os
 import re
 import tempfile
 from pathlib import Path
-from typing import Any, Dict, List, Mapping, Optional, Sequence, Union
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    Dict,
+    List,
+    Mapping,
+    Optional,
+    Sequence,
+    Union,
+)
 
 from .discovery import find_viewalyzer
 from .errors import BinaryNotFound, ViewAlyzerError
@@ -29,6 +38,9 @@ from .runner import (
     BinarySpec,
     Runner,
 )
+
+if TYPE_CHECKING:  # pragma: no cover - import cycle guard
+    from .streaming import StreamSession
 
 #: The agent wire-protocol version this SDK was written against.
 #: Check the CLI's own value once via :meth:`ViewAlyzer.version`.
@@ -309,6 +321,78 @@ class ViewAlyzer:
             recording_id=registered.group(1) if registered else None,
             path=actual,
             info={"duration_s": duration_s},
+        )
+
+    def stream(
+        self,
+        config: ConfigSpec,
+        *,
+        output: PathLike,
+        duration_s: float,
+        elf: Optional[PathLike] = None,
+        symbols: Union[str, Sequence[str]] = (),
+        poll_hz: Optional[int] = None,
+        extra_flags: Sequence[str] = (),
+        timeout_s: Optional[float] = None,
+    ) -> "StreamSession":
+        """Record like :meth:`record`, but stream live samples while the
+        capture runs.
+
+        Starts the same capture as :meth:`record` (same *config*, *elf* /
+        *symbols* / *poll_hz* semantics, same ``.vadb`` landing on disk)
+        with the CLI's ``--stream`` tap enabled, and returns a
+        :class:`~viewalyzer_sdk.streaming.StreamSession` immediately, while
+        the CLI is still connecting. Iterate the session for
+        :class:`~viewalyzer_sdk.streaming.StreamSample` points as they
+        arrive (firmware user traces and polled symbols alike), stop early
+        with :meth:`~viewalyzer_sdk.streaming.StreamSession.stop`, and take
+        the finished Recording from
+        :meth:`~viewalyzer_sdk.streaming.StreamSession.result`::
+
+            with va.stream("board.vacf", output="run.vadb",
+                           duration_s=60) as s:
+                for sample in s:
+                    chart.add(sample.name, sample.t_s, sample.value)
+            rec = s.result()
+
+        Sample ``t_us`` is the live arrival timeline (t=0 at the first
+        sample); the recording keeps exact device-clock timestamps, so use
+        the Recording for analysis and the stream for display. Early stop
+        needs a CLI with ``--stop-file`` support to work on Windows;
+        elsewhere SIGINT covers older builds.
+
+        *timeout_s* bounds the whole session (default: *duration_s* plus
+        connect/finalize headroom); past it, iteration raises and the CLI
+        is killed.
+        """
+        from .streaming import StreamSession  # late: avoids a module cycle
+
+        symbols = _as_symbol_list(symbols)
+        args: List[Any] = [
+            "--output",
+            str(output),
+            "--duration",
+            duration_s,
+        ]
+        if elf is not None:
+            args += ["--elf", _existing(elf, "ELF")]
+        if symbols:
+            if elf is None:
+                raise ViewAlyzerError(
+                    "bad_arguments", "symbols need an elf to resolve against"
+                )
+            args += ["--symbols", ",".join(symbols)]
+        if poll_hz is not None:
+            args += ["--poll-hz", poll_hz]
+        args += list(extra_flags)
+        return StreamSession(
+            self,
+            self._runner,
+            config,
+            args,
+            output=output,
+            duration_s=duration_s,
+            timeout_s=timeout_s,
         )
 
     def record_polls(
