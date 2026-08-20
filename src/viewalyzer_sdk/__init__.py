@@ -23,12 +23,16 @@ from .client import (
 from .discovery import ENV_VAR, find_viewalyzer, find_viewalyzer_with_source
 from .errors import BinaryNotFound, ViewAlyzerError
 from .recording import Recording
+from .streaming import StreamMeta, StreamSample, StreamSession
 
-__version__ = "1.0.0"
+__version__ = "1.1.0"
 
 __all__ = [
     "ViewAlyzer",
     "Recording",
+    "StreamSession",
+    "StreamSample",
+    "StreamMeta",
     "ViewAlyzerError",
     "BinaryNotFound",
     "find_viewalyzer",

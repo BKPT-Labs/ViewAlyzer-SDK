@@ -141,6 +141,53 @@ def handle_query(a):
     )
 
 
+def stream_capture(a):
+    """The --stream contract on stderr: stream_init, stream_meta per
+    stream (one late, like a firmware trace whose setup packet arrives
+    mid-capture), stream_sample lines interleaved with plain diagnostics,
+    stream_end last. Honors --stop-file and SIGINT like the real CLI."""
+    import os
+    import signal
+    import time
+
+    sig = {"stop": False}
+    try:
+        signal.signal(signal.SIGINT, lambda *_: sig.__setitem__("stop", True))
+    except ValueError:  # pragma: no cover - non-main thread
+        pass
+
+    def jline(obj):
+        print(json.dumps(obj), file=sys.stderr, flush=True)
+
+    duration = float(val(a, "--duration"))
+    stop_path = val(a, "--stop-file")
+    jline({"t": "stream_init", "streams": [], "duration_s": duration,
+           "poll_hz": 0})
+    jline({"t": "stream_meta", "id": 3, "name": "Beat", "type": "counter"})
+    t0 = time.monotonic()
+    i = 0
+    stopped = False
+    while time.monotonic() - t0 < duration:
+        if sig["stop"] or (stop_path and os.path.exists(stop_path)):
+            stopped = True
+            break
+        jline({"t": "stream_sample", "id": 3, "t_us": i * 10000, "value": i})
+        if i == 2:  # late registration, as firmware setup packets arrive
+            jline({"t": "stream_meta", "id": 4, "name": "Load",
+                   "type": "graph"})
+        if i >= 3:
+            jline({"t": "stream_sample", "id": 4, "t_us": i * 10000,
+                   "value": i * 0.5, "is_float": True})
+        print("[headless] draining ring buffer...", file=sys.stderr,
+              flush=True)
+        i += 1
+        time.sleep(0.02)
+    if stopped:
+        print("[headless] Stop requested at %.1f s. Finalizing partial "
+              "recording..." % (time.monotonic() - t0), flush=True)
+    jline({"t": "stream_end"})
+
+
 def main():
     argv = sys.argv[1:]
     if not argv or argv[0] != "--headless":
@@ -282,6 +329,12 @@ def main():
             print("[headless] Connecting...")
             print("[headless] ERROR: Failed to connect to target")
             return 1
+        if cfg.get("transport") == "hang":
+            # A wedged probe: no stream lines, no stop-file checks, no exit.
+            import time
+            print("[headless] Connecting...", flush=True)
+            time.sleep(120)
+            return 1
         if cfg.get("transport") == "cooldown":
             # Capture mode mixes progress lines with the error envelope.
             print("[headless] Free mode max capture applied.")
@@ -296,6 +349,8 @@ def main():
         out = val(a, "--output")
         if not out.endswith(".vadb"):  # the real binary forces the extension
             out = out.rsplit(".", 1)[0] + ".vadb"
+        if "--stream" in a:
+            stream_capture(a)
         make_vadb(out)
         print("[headless] Recording...")
         if "--symbols" in a:

@@ -90,6 +90,31 @@ class Runner:
             ) from e
         return RunResult(proc.returncode, proc.stdout or "", proc.stderr or "")
 
+    def popen(self, args: Sequence[Any]) -> "subprocess.Popen[str]":
+        """Start ``--headless <args>`` with piped stdio and return the live
+        process. For streaming captures, where the caller consumes stderr
+        line-by-line while the CLI runs; the caller owns draining BOTH
+        pipes (an undrained one fills and stalls the CLI) and reaping."""
+        argv = [*self._argv0, "--headless", *[str(a) for a in args]]
+        try:
+            return subprocess.Popen(
+                argv,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                stdin=subprocess.DEVNULL,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                bufsize=1,
+            )
+        except FileNotFoundError as e:
+            raise ViewAlyzerError(
+                "binary_missing",
+                f"ViewAlyzer executable not found at {self._argv0[0]}. "
+                "Install ViewAlyzer, or point the VIEWALYZER environment "
+                "variable at the executable.",
+            ) from e
+
     def run_json(self, args: Sequence[Any], timeout_s: float) -> Dict[str, Any]:
         """Run a JSON-mode invocation and return the parsed payload.
         Raises :class:`ViewAlyzerError` for error envelopes and malformed
