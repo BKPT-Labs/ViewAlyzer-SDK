@@ -6,9 +6,9 @@ Search order (first hit wins):
    executable. If set but pointing at a missing file this *raises* rather
    than silently falling through, so a wrong explicit setting is loud
    instead of being shadowed by whatever else is on the machine.
-2. ``PATH``: both ``ViewAlyzer`` and ``viewalyzer`` are tried (Linux
-   installs symlink the lowercase name; Windows resolution appends ``.exe``
-   automatically).
+2. ``PATH``: ``viewalyzer-cli`` (the dedicated headless binary), then
+   ``ViewAlyzer`` and ``viewalyzer`` (the GUI binary, which forwards
+   ``--headless``). Windows resolution appends ``.exe`` automatically.
 3. Well-known install locations per OS:
 
    - Windows: ``%ProgramFiles%\\ViewAlyzer\\ViewAlyzer.exe`` and the
@@ -32,6 +32,10 @@ from .errors import BinaryNotFound
 
 #: Environment variable naming an explicit path to the ViewAlyzer executable.
 ENV_VAR = "VIEWALYZER"
+
+#: Executable names tried on ``PATH``, in order: the dedicated CLI first, then
+#: the GUI binary (which forwards ``--headless`` to the same engine).
+PATH_NAMES = ("viewalyzer-cli", "ViewAlyzer", "viewalyzer")
 
 
 def find_viewalyzer(
@@ -63,7 +67,7 @@ def find_viewalyzer_with_source(
             f"Fix or unset the {ENV_VAR} environment variable."
         )
 
-    for name in ("ViewAlyzer", "viewalyzer"):
+    for name in PATH_NAMES:
         hit = shutil.which(name, path=env.get("PATH"))
         if hit:
             return Path(hit), "path"

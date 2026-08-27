@@ -48,7 +48,9 @@ First hit wins:
 
 1. the `VIEWALYZER` environment variable (path to the executable); set but
    wrong raises immediately rather than silently falling back;
-2. `PATH` (`ViewAlyzer` / `viewalyzer`, `.exe` implied on Windows);
+2. `PATH` (`viewalyzer-cli`, then `ViewAlyzer` / `viewalyzer`; `.exe` implied
+   on Windows). Either binary works: `viewalyzer-cli` is the headless engine
+   on its own, the GUI binary forwards `--headless` to the same engine;
 3. the standard install locations: `%ProgramFiles%\ViewAlyzer` and
    `%LOCALAPPDATA%\Programs\ViewAlyzer` on Windows, `/Applications` and
    `~/Applications` on macOS, `/usr/local/bin`, `~/.local/bin`, and

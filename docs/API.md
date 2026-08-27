@@ -401,8 +401,9 @@ rec = va.record(cfg, output="run.vadb", duration_s=10)   # DWT rows land in the 
 ```
 
 The engine validates `etr-window` against the chip profile's permitted RAM
-region; flags passed to the CLI still win over the file. See the App's
-CLI Integration Guide, "Hardware trace in the config file", for every key.
+region; flags passed to the CLI still win over the file. See the CLI
+reference (`docs/CLI.md` in the ViewAlyzer repository), "Connecting to a
+target", for every key.
 
 ### Verifying a pinned RTT address before capturing
 
