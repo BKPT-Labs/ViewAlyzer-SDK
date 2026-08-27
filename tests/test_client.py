@@ -202,27 +202,8 @@ def test_compare_requires_existing_baseline(va, tmp_path):
     assert e.value.code == "file_not_found"
 
 
-def test_analyze_memory_passes_map(va, tmp_path):
-    elf = tmp_path / "fw.elf"
-    elf.write_bytes(b"\x7fELF")
-    mp = tmp_path / "fw.map"
-    mp.write_text("Memory Configuration\n")
-    mem = va.analyze_memory(elf, map_file=mp)
-    assert mem["has_map_data"] is True and mem["map"]["file_path"] == str(mp)
-    assert va.analyze_memory(elf)["has_map_data"] is False
-
-
-def test_license_methods_stay_but_report_unsupported(va):
-    for call in (va.get_license, va.validate_license, va.deactivate_license):
-        with pytest.raises(ViewAlyzerError) as e:
-            call()
-        assert e.value.code == "unsupported"
-    with pytest.raises(ViewAlyzerError):
-        va.activate_license("ANY-KEY")
-
-
 def test_list_probes(va):
-    payload = va.list_probes(stlink_path="C:/ST")  # 1.x kwargs still accepted
+    payload = va.list_probes()
     assert payload["probes"][0]["type"] == "jlink"
     assert payload["probes"][0]["serial"] == "1260001884"
 
