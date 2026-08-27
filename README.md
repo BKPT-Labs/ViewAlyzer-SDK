@@ -50,16 +50,15 @@ First hit wins:
    wrong raises immediately rather than silently falling back;
 2. `PATH` (`viewalyzer-cli`, then `ViewAlyzer` / `viewalyzer`; `.exe` implied
    on Windows). Either binary works: `viewalyzer-cli` is the headless engine
-   on its own, the GUI binary forwards `--headless` to the same engine;
+   on its own, and the GUI binary runs the same commands;
 3. the standard install locations: `%ProgramFiles%\ViewAlyzer` and
    `%LOCALAPPDATA%\Programs\ViewAlyzer` on Windows, `/Applications` and
    `~/Applications` on macOS, `/usr/local/bin`, `~/.local/bin`, and
    `/opt/ViewAlyzer` on Linux.
 
-Or pass a path explicitly: `ViewAlyzer("/path/to/ViewAlyzer")`. Nothing is
-ever hardcoded: every tool path the CLI uses (J-Link install dir,
-arm-none-eabi-gdb, ...) can be set through the connection config or the
-method arguments.
+Or pass a path explicitly: `ViewAlyzer("/path/to/viewalyzer-cli")`. The CLI
+drives probes directly (no vendor tools to locate), so there are no tool
+paths to configure.
 
 ## Capturing
 

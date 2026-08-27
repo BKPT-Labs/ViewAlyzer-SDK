@@ -6,7 +6,7 @@ JSON envelope. Everything above it works with parsed dicts or a raised
 
 Contract (see ``docs/CLI.md`` in the ViewAlyzer repository):
 
-- every invocation is ``<binary> --headless <mode flags...>``: one process,
+- every invocation is ``<binary> <command> [flags]``: one process,
   one job, one payload, exit. No daemon, no session state.
 - query/list modes print exactly one JSON object on stdout. On failure they
   print an *error envelope* (``{"error": <code>, ...}``), usually with a
@@ -61,9 +61,9 @@ class Runner:
         return self._argv0[0]
 
     def run(self, args: Sequence[Any], timeout_s: float) -> RunResult:
-        """Run ``--headless <args>`` and return the raw streams. Raises only
+        """Run ``<args>`` (a command and its flags) and return the raw streams. Raises only
         for process-level failures (missing binary, timeout)."""
-        argv = [*self._argv0, "--headless", *[str(a) for a in args]]
+        argv = [*self._argv0, *[str(a) for a in args]]
         try:
             proc = subprocess.run(
                 argv,
@@ -91,11 +91,11 @@ class Runner:
         return RunResult(proc.returncode, proc.stdout or "", proc.stderr or "")
 
     def popen(self, args: Sequence[Any]) -> "subprocess.Popen[str]":
-        """Start ``--headless <args>`` with piped stdio and return the live
+        """Start ``<args>`` with piped stdio and return the live
         process. For streaming captures, where the caller consumes stderr
         line-by-line while the CLI runs; the caller owns draining BOTH
         pipes (an undrained one fills and stalls the CLI) and reaping."""
-        argv = [*self._argv0, "--headless", *[str(a) for a in args]]
+        argv = [*self._argv0, *[str(a) for a in args]]
         try:
             return subprocess.Popen(
                 argv,

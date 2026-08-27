@@ -25,7 +25,7 @@ from .errors import BinaryNotFound, ViewAlyzerError
 from .recording import Recording
 from .streaming import StreamMeta, StreamSample, StreamSession
 
-__version__ = "1.2.0"
+__version__ = "2.0.0"
 
 __all__ = [
     "ViewAlyzer",

@@ -66,7 +66,7 @@ UNTIERED_VERBS = (
 )
 QUERY_VERBS = (*TIERED_VERBS, *TWO_TIER_VERBS, *UNTIERED_VERBS)
 
-# Stable stdout contracts of capture mode (see the CLI Integration Guide):
+# Stable stdout contracts of capture mode (docs/CLI.md in the ViewAlyzer repository):
 #   [headless] Recording saved: /abs/path/run1.vadb (5576 KB)
 #   [headless] Recording registered: id=f76593b93473
 _RECORDING_SAVED_RE = re.compile(r"Recording saved:\s*(.+?)\s*\(\d+\s*KB\)")
@@ -122,92 +122,43 @@ class ViewAlyzer:
         """``{"schema_version": 1, "app": "ViewAlyzer", "version": "1.2.0"}``.
         Call once at startup; if ``schema_version`` differs from
         :data:`SCHEMA_VERSION`, response shapes may not match this SDK."""
-        return self._runner.run_json(["--version"], self._query_timeout_s)
+        return self._runner.run_json(["version"], self._query_timeout_s)
 
-    def doctor(
-        self,
-        *,
-        jlink_path: Optional[PathLike] = None,
-        stlink_path: Optional[PathLike] = None,
-        cube_programmer_path: Optional[PathLike] = None,
-        arm_gdb_path: Optional[PathLike] = None,
-    ) -> Dict[str, Any]:
-        """Setup health check: every external tool and probe the app can
-        use, with resolved paths, versions, and a ``hint`` for anything
+    def doctor(self) -> Dict[str, Any]:
+        """Setup health check: probes per kind, serial ports, the recordings
+        directory and the target registry, with a ``hint`` for anything
         missing. Returns ``{"checks": [{"id", "name", "required", "status":
         "ok"|"missing"|"none", "path"?, "version"?, "detail", "hint"?},
-        ...], "app_version", ...}``. A missing optional tool is a report
-        entry, not an error. Tool-path arguments are optional overrides,
-        same as the capture flags."""
-        args: List[Any] = ["--doctor"]
-        args += _tool_path_flags(
-            jlink_path, stlink_path, cube_programmer_path, arm_gdb_path
-        )
-        return self._runner.run_json(args, max(self._query_timeout_s, 60.0))
+        ...], ...}``. A missing optional item is a report entry, not an
+        error."""
+        return self._runner.run_json(["doctor"], max(self._query_timeout_s, 60.0))
 
-    def analyze_memory(
-        self, elf: PathLike, *, map_file: Optional[PathLike] = None
-    ) -> Dict[str, Any]:
+    def analyze_memory(self, elf: PathLike) -> Dict[str, Any]:
         """Static flash/RAM breakdown of a firmware image."""
-        args: List[Any] = ["--analyze-memory", "--elf", _existing(elf, "ELF")]
-        if map_file is not None:
-            args += ["--map", _existing(map_file, "map file")]
-        return self._runner.run_json(args, self._query_timeout_s)
+        return self._runner.run_json(["memory", "--elf", _existing(elf, "ELF")], self._query_timeout_s)
 
     def list_symbols(
         self, elf: PathLike, *, filter: Optional[str] = None
     ) -> Dict[str, Any]:
         """Pollable symbols in a firmware ELF (name, address, size, type)."""
-        args: List[Any] = ["--list-symbols", "--elf", _existing(elf, "ELF")]
+        args: List[Any] = ["symbols", "--elf", _existing(elf, "ELF")]
         if filter:
             args += ["--filter", filter]
         return self._runner.run_json(args, self._query_timeout_s)
 
-    def list_probes(
-        self,
-        *,
-        jlink_path: Optional[PathLike] = None,
-        stlink_path: Optional[PathLike] = None,
-        cube_programmer_path: Optional[PathLike] = None,
-    ) -> Dict[str, Any]:
+    def list_probes(self) -> Dict[str, Any]:
         """Connected debug probes with serial numbers:
         ``{"probes": [{"type": "jlink"|"stlink", "serial", "description"}],
         "warnings": [...]?}``. Pass a serial to a capture via the
         ``jlink-serial`` / ``stlink-serial`` config keys when more than one
-        probe is attached (with a single probe the drivers auto-select).
-        Tool paths are optional overrides for the probe enumerators."""
-        args: List[Any] = ["--list-probes"]
-        args += _tool_path_flags(jlink_path, stlink_path, cube_programmer_path, None)
-        return self._runner.run_json(args, self._query_timeout_s)
-
-    # ----- licensing ------------------------------------------------------
-
-    def get_license(self) -> Dict[str, Any]:
-        """Local license state and effective policy caps (e.g. the maximum
-        recording duration). Read-only; never contacts the license
-        server."""
-        return self._runner.run_json(["--get-license"], self._query_timeout_s)
-
-    def activate_license(self, key: str, *, timeout_s: float = 60.0) -> Dict[str, Any]:
-        """Activate this machine with a license key (contacts the license
-        server; requires network)."""
-        return self._runner.run_json(["--activate-license", key], timeout_s)
-
-    def validate_license(self, *, timeout_s: float = 60.0) -> Dict[str, Any]:
-        """Refresh this machine's license state against the license server
-        (requires network)."""
-        return self._runner.run_json(["--validate-license"], timeout_s)
-
-    def deactivate_license(self, *, timeout_s: float = 60.0) -> Dict[str, Any]:
-        """Release this machine's license seat (contacts the license
-        server; requires network)."""
-        return self._runner.run_json(["--deactivate-license"], timeout_s)
+        probe is attached (with a single probe the drivers auto-select)."""
+        return self._runner.run_json(["probes"], self._query_timeout_s)
 
     # ----- the recording index --------------------------------------------
 
     def list_recordings(self) -> Dict[str, Any]:
         """The raw recording-index payload (``{"recordings": [...]}``)."""
-        return self._runner.run_json(["--list-recordings"], self._query_timeout_s)
+        return self._runner.run_json(["recordings"], self._query_timeout_s)
 
     def recordings(self) -> List[Recording]:
         """The recording index as bound :class:`Recording` handles, in the
@@ -236,12 +187,12 @@ class ViewAlyzer:
         """**Destructive.** Removes the index entry *and deletes the .vadb
         file on disk*."""
         ref = recording.ref if isinstance(recording, Recording) else str(recording)
-        self._run_ok(["--delete-recording", ref])
+        self._run_ok(["recordings", "--delete-recording", ref])
 
     def delete_all_recordings(self) -> None:
         """**Destructive.** Clears the index and deletes every indexed
         recording file."""
-        self._run_ok(["--delete-all-recordings"])
+        self._run_ok(["recordings", "--delete-all-recordings"])
 
     # ----- capture --------------------------------------------------------
 
@@ -299,7 +250,7 @@ class ViewAlyzer:
 
         timeout = timeout_s if timeout_s is not None else duration_s + RECORD_TIMEOUT_PAD_S
         with _config_path(config) as config_path:
-            r = self._runner.run(["--config", config_path, *args], timeout)
+            r = self._runner.run(["capture", "--config", config_path, *args], timeout)
         if r.exit_code != 0:
             # A blocked capture may carry a machine-readable envelope on
             # stdout (e.g. cooldown_active with retry_after_s); prefer its
@@ -360,8 +311,7 @@ class ViewAlyzer:
         Sample ``t_us`` is the live arrival timeline (t=0 at the first
         sample); the recording keeps exact device-clock timestamps, so use
         the Recording for analysis and the stream for display. Early stop
-        needs a CLI with ``--stop-file`` support to work on Windows;
-        elsewhere SIGINT covers older builds.
+        goes through ``--stop-file`` on every OS (plus SIGINT on POSIX).
 
         *timeout_s* bounds the whole session (default: *duration_s* plus
         connect/finalize headroom); past it, iteration raises and the CLI
@@ -412,9 +362,9 @@ class ViewAlyzer:
         """Sample target variables over the debug probe; no firmware
         instrumentation required. Needs a probe transport (not udp/serial).
 
-        Pass *config* to reuse a connection file, or *target_device* (plus
-        any tool-path flags via *extra_flags*, e.g. ``["--arm-gdb", path]``)
-        for config-less mode. Each symbol is ``name`` or ``name:type``.
+        Pass *config* to reuse a connection file, or *target_device* plus
+        the transport and any other connection flags via *extra_flags*
+        (e.g. ``["--transport", "stlink-rambuf"]``) for config-less mode. Each symbol is ``name`` or ``name:type``.
         Returns a :class:`Recording` with the poll summary in
         ``info["summary"]``.
         """
@@ -422,7 +372,7 @@ class ViewAlyzer:
         if not symbols:
             raise ViewAlyzerError("bad_arguments", "no symbols to poll")
         args: List[Any] = [
-            "--record-polls",
+            "poll",
             "--elf",
             _existing(elf, "ELF"),
             "--symbols",
@@ -478,7 +428,7 @@ class ViewAlyzer:
         events, window bytes, wrap state, ...) in ``info["summary"]``.
         Raises ``ViewAlyzerError("empty_snapshot", ...)`` when the ring
         holds no parseable events."""
-        args: List[Any] = ["--snapshot", "--output", str(output)]
+        args: List[Any] = ["snapshot", "--output", str(output)]
         if elf is not None:
             args += ["--elf", _existing(elf, "ELF")]
         args += list(extra_flags)
@@ -511,7 +461,7 @@ class ViewAlyzer:
         extra_flags: Sequence[str] = (),
         timeout_s: Optional[float] = None,
     ) -> Dict[str, Any]:
-        """One ``--query`` call. Prefer the named helpers on
+        """One ``query`` call. Prefer the named helpers on
         :class:`Recording`; this generic form exists for flag combinations
         the helpers don't cover. *extra_flags* are appended verbatim (the
         ``series`` and ``fingerprint`` helpers use this for their
@@ -522,7 +472,7 @@ class ViewAlyzer:
                 f"unknown query verb {verb!r}; expected one of {QUERY_VERBS}",
             )
         ref = recording.ref if isinstance(recording, Recording) else str(recording)
-        args: List[Any] = ["--query", verb, "--recording", ref]
+        args: List[Any] = ["query", verb, "--recording", ref]
         if tier is not None:
             args += ["--tier", tier]
         if budget is not None:
@@ -588,24 +538,6 @@ def _raise_any_error_envelope(stdout: str) -> None:
                 from .errors import raise_for_envelope
 
                 raise_for_envelope(payload)
-
-
-def _tool_path_flags(
-    jlink_path: Optional[PathLike],
-    stlink_path: Optional[PathLike],
-    cube_programmer_path: Optional[PathLike],
-    arm_gdb_path: Optional[PathLike],
-) -> List[str]:
-    flags: List[str] = []
-    if jlink_path is not None:
-        flags += ["--jlink", str(jlink_path)]
-    if stlink_path is not None:
-        flags += ["--stlink", str(stlink_path)]
-    if cube_programmer_path is not None:
-        flags += ["--cube-programmer", str(cube_programmer_path)]
-    if arm_gdb_path is not None:
-        flags += ["--arm-gdb", str(arm_gdb_path)]
-    return flags
 
 
 def _capture_failure_detail(r: Any) -> str:

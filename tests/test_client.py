@@ -11,24 +11,11 @@ def test_version_handshake(va):
     assert info["schema_version"] == SCHEMA_VERSION
 
 
-def test_get_license(va):
-    assert "max_record_s" in va.get_license()
-
-
 def test_doctor(va):
     report = va.doctor()
     checks = {c["id"]: c for c in report["checks"]}
-    assert checks["libusb"]["status"] == "ok"
-    assert checks["jlink_library"]["hint"]
-
-
-def test_license_lifecycle(va):
-    assert va.activate_license("GOOD-KEY")["activated"] is True
-    assert va.validate_license()["state"] == "active"
-    assert va.deactivate_license()["activated"] is False
-    with pytest.raises(ViewAlyzerError) as e:
-        va.activate_license("BAD-KEY")
-    assert e.value.code == "activation_failed"
+    assert checks["stlink_probes"]["status"] == "ok"
+    assert checks["jlink_probes"]["hint"]
 
 
 def test_list_recordings_and_handles(va):
