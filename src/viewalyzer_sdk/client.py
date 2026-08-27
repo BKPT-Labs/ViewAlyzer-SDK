@@ -133,9 +133,17 @@ class ViewAlyzer:
         error."""
         return self._runner.run_json(["doctor"], max(self._query_timeout_s, 60.0))
 
-    def analyze_memory(self, elf: PathLike) -> Dict[str, Any]:
-        """Static flash/RAM breakdown of a firmware image."""
-        return self._runner.run_json(["memory", "--elf", _existing(elf, "ELF")], self._query_timeout_s)
+    def analyze_memory(
+        self, elf: PathLike, *, map_file: Optional[PathLike] = None
+    ) -> Dict[str, Any]:
+        """Static flash/RAM breakdown of a firmware image. With *map_file*
+        (the GNU ld linker MAP) the payload adds ``has_map_data`` and
+        ``map``: region capacities with used/free/percent, the sections the
+        linker placed, and the input sections it discarded."""
+        args: List[Any] = ["memory", "--elf", _existing(elf, "ELF")]
+        if map_file is not None:
+            args += ["--map", _existing(map_file, "map file")]
+        return self._runner.run_json(args, self._query_timeout_s)
 
     def list_symbols(
         self, elf: PathLike, *, filter: Optional[str] = None
@@ -146,13 +154,47 @@ class ViewAlyzer:
             args += ["--filter", filter]
         return self._runner.run_json(args, self._query_timeout_s)
 
-    def list_probes(self) -> Dict[str, Any]:
+    def list_probes(
+        self,
+        *,
+        jlink_path: Optional[PathLike] = None,
+        stlink_path: Optional[PathLike] = None,
+        cube_programmer_path: Optional[PathLike] = None,
+    ) -> Dict[str, Any]:
         """Connected debug probes with serial numbers:
         ``{"probes": [{"type": "jlink"|"stlink", "serial", "description"}],
         "warnings": [...]?}``. Pass a serial to a capture via the
         ``jlink-serial`` / ``stlink-serial`` config keys when more than one
-        probe is attached (with a single probe the drivers auto-select)."""
+        probe is attached (with a single probe the drivers auto-select).
+
+        The tool-path keyword arguments are accepted for compatibility with
+        1.x scripts and have no effect: ViewAlyzer drives probes directly."""
+        del jlink_path, stlink_path, cube_programmer_path
         return self._runner.run_json(["probes"], self._query_timeout_s)
+
+    # ----- licensing ------------------------------------------------------
+    # Kept for 1.x compatibility. ViewAlyzer currently has no license
+    # backend, so these raise ``ViewAlyzerError("unsupported", ...)`` rather
+    # than disappearing from the API; they become real calls when it does.
+
+    def get_license(self) -> Dict[str, Any]:
+        """Local license state. Not available in this ViewAlyzer build."""
+        raise _licensing_unavailable()
+
+    def activate_license(self, key: str, *, timeout_s: float = 60.0) -> Dict[str, Any]:
+        """Activate this machine with a key. Not available in this build."""
+        del key, timeout_s
+        raise _licensing_unavailable()
+
+    def validate_license(self, *, timeout_s: float = 60.0) -> Dict[str, Any]:
+        """Refresh the license state. Not available in this build."""
+        del timeout_s
+        raise _licensing_unavailable()
+
+    def deactivate_license(self, *, timeout_s: float = 60.0) -> Dict[str, Any]:
+        """Release this machine's seat. Not available in this build."""
+        del timeout_s
+        raise _licensing_unavailable()
 
     # ----- the recording index --------------------------------------------
 
@@ -508,6 +550,14 @@ class ViewAlyzer:
                 pass
         if r.exit_code != 0:
             raise ViewAlyzerError("command_failed", _capture_failure_detail(r))
+
+
+def _licensing_unavailable() -> ViewAlyzerError:
+    return ViewAlyzerError(
+        "unsupported",
+        "Licensing is not available in this ViewAlyzer build; nothing was "
+        "activated or changed.",
+    )
 
 
 def _existing(path: PathLike, what: str) -> Path:

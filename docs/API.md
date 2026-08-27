@@ -65,9 +65,16 @@ ViewAlyzer(binary=None, *, query_timeout_s=30.0)
 |---|---|
 | `version()` | `{"schema_version": 1, "app": "ViewAlyzer", "version": "0.1.0", "core": "rust", "transports": [...]}`. Call once at startup and compare against `SCHEMA_VERSION`. |
 | `doctor()` | Setup health check: `{"checks": [{"id", "name", "required", "status": "ok"\|"missing"\|"none", "path"?, "version"?, "detail", "hint"?}], ...}`. Covers attached probes per kind, serial ports, the recordings directory and the target registry. A missing optional item is a report entry, not an error. |
-| `analyze_memory(elf)` | Static flash/RAM breakdown of a firmware image (`text`, `data`, `bss`, `total`, `flash_used`, sections). |
+| `analyze_memory(elf, *, map_file=None)` | Static flash/RAM breakdown of a firmware image (`text`, `data`, `bss`, `total`, `flash_used`, sections). With the linker MAP: `has_map_data` and `map` (region capacities with used/free/percent, MAP-placed sections, discarded input sections). |
 | `list_symbols(elf, *, filter=None)` | Pollable data symbols (`symbol_legend`: name, address, size, type; plus `data_symbols`/`text_symbols` counts). Also handy to verify a pinned `rtt-address` against `_SEGGER_RTT` in the ELF you actually flashed. |
-| `list_probes()` | Connected debug probes: `{"probes": [{"type": "jlink"\|"stlink", "serial", "description"}], "warnings"?}`. With several probes attached, pin one via the `jlink-serial` / `stlink-serial` config keys. |
+| `list_probes(*, jlink_path=None, stlink_path=None, cube_programmer_path=None)` | Connected debug probes: `{"probes": [{"type": "jlink"\|"stlink", "serial", "description"}], "warnings"?}`. With several probes attached, pin one via the `jlink-serial` / `stlink-serial` config keys. The tool-path keyword arguments are accepted for 1.x compatibility and have no effect. |
+
+### Licensing
+
+`get_license()`, `activate_license(key)`, `validate_license()` and
+`deactivate_license()` stay in the API for 1.x compatibility. ViewAlyzer
+currently has no license backend, so each raises
+`ViewAlyzerError("unsupported", ...)`; a capture never phones home.
 
 ### The recording index
 

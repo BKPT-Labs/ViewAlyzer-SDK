@@ -339,8 +339,11 @@ def main():
         )
 
     if verb == "memory":
+        mp = val(a, "--map")
         return emit({"schema_version": 1, "elf": val(a, "--elf"), "text": 42572,
-                     "data": 3002, "bss": 63014, "total": 108588})
+                     "data": 3002, "bss": 63014, "total": 108588,
+                     "has_map_data": mp is not None,
+                     "map": {"file_path": mp, "memory_regions": []} if mp else None})
 
     if verb == "query":
         return handle_query(a)
