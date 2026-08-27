@@ -1,5 +1,5 @@
 """A stand-in for the ViewAlyzer binary, faithful to the CLI contract:
-a command verb first, one JSON object on stdout for query modes, error
+`--headless` required, one JSON object on stdout for query modes, error
 envelopes with non-zero exit, `[headless]` progress lines for captures,
 and the forced `.vadb` output extension. Driven via `sys.executable` so the
 suite behaves identically on Windows, macOS, and Linux."""
@@ -13,9 +13,6 @@ QUERY_VERBS = {
     "fingerprint", "compare",
     "slices", "slice-details", "events-all", "user-traces-all",
 }
-
-VERBS = {"version", "doctor", "recordings", "probes", "symbols", "memory",
-         "query", "snapshot", "poll", "capture"}
 
 
 def make_vadb(path, total_events=1234, seq_present=True, lost_events=0, seq_gaps=0):
@@ -69,9 +66,9 @@ def emit(obj, code=0):
 
 
 def handle_query(a):
-    verb = a[0] if a else None
+    verb = val(a, "--query")
     if verb not in QUERY_VERBS:
-        return emit({"error": "bad_arguments", "message": "unknown query verb"}, 1)
+        return emit({"error": "bad_arguments", "message": "unknown --query kind"}, 1)
     if val(a, "--recording") is None:
         return emit({"error": "bad_arguments", "message": "--recording required"}, 1)
     if verb == "sql":
@@ -191,110 +188,48 @@ def stream_capture(a):
     jline({"t": "stream_end"})
 
 
-def handle_capture(a):
-    if "--config" not in a or "--output" not in a or "--duration" not in a:
-        return emit({"error": "bad_arguments",
-                     "message": "capture needs --config, --output and --duration"}, 1)
-    with open(val(a, "--config"), "r", encoding="utf-8") as f:
-        cfg = json.load(f)
-    if cfg.get("transport") == "fail":
-        print("[headless] Connecting...")
-        print("[headless] ERROR: Failed to connect to target")
-        return 1
-    if cfg.get("transport") == "hang":
-        # A wedged probe: no stream lines, no stop-file checks, no exit.
-        import time
-        print("[headless] Connecting...", flush=True)
-        time.sleep(120)
-        return 1
-    if cfg.get("transport") == "cooldown":
-        # Capture mode mixes progress lines with the error envelope.
-        print("[headless] Free mode max capture applied.")
-        print(json.dumps({"schema_version": 1, "error": "cooldown_active",
-                          "message": "wait 42 s", "retry_after_s": 42}))
-        print("[headless] ERROR: Capture cooldown active (42 s remaining).",
-              file=sys.stderr)
-        return 1
-    if "--symbols" in a and "--elf" not in a:
-        print("[headless] ERROR: --symbols requires --elf")
-        return 1
-    out = val(a, "--output")
-    if not out.endswith(".vadb"):  # the real binary forces the extension
-        out = out.rsplit(".", 1)[0] + ".vadb"
-    if "--stream" in a:
-        stream_capture(a)
-    make_vadb(out)
-    print("[headless] Recording...")
-    if "--symbols" in a:
-        print("[headless] Activating MemoryPoller with %d symbol(s)"
-              % len(val(a, "--symbols").split(",")))
-    print("[headless] Recording saved: %s (12 KB)" % out)
-    print("[headless] Recording registered: id=abcdef123456")
-    return 0
-
-
-def handle_snapshot(a):
-    with open(val(a, "--config"), "r", encoding="utf-8") as f:
-        cfg = json.load(f)
-    if cfg.get("transport") not in ("stlink-rambuf", "jlink-rambuf"):
-        return emit(
-            {"error": "bad_arguments",
-             "message": "snapshot needs a rambuf transport"}, 1
-        )
-    if cfg.get("rambuf-address") == "0xEMPTY":
-        return emit(
-            {"error": "empty_snapshot",
-             "message": "The snapshot window parsed to 0 events"}, 1
-        )
-    out = val(a, "--output")
-    if not out.endswith(".vadb"):
-        out = out.rsplit(".", 1)[0] + ".vadb"
-    make_vadb(out, total_events=777)
-    print("[headless] Snapshot saved: %s" % out, file=sys.stderr)
-    return emit(
-        {
-            "schema_version": 1,
-            "recording_id": "5aa9d4114f00",
-            "path": out,
-            "summary": {"ring": "post-mortem", "events": 777,
-                        "window_bytes": 4096, "wrapped": True, "frozen": True},
-        }
-    )
-
-
 def main():
     argv = sys.argv[1:]
-    if not argv or argv[0] not in VERBS:
-        # Without a command the real GUI binary opens a window.
+    if not argv or argv[0] != "--headless":
+        # Without --headless the real app launches the GUI.
         print("GUI mode launched (this should never happen in tests)", file=sys.stderr)
         return 3
-    verb, a = argv[0], argv[1:]
+    a = argv[1:]
 
-    if verb == "version":
+    if "--version" in a:
         return emit({"schema_version": 1, "app": "ViewAlyzer", "version": "9.9.9"})
 
-    if verb == "doctor":
+    if "--doctor" in a:
         return emit(
             {
                 "schema_version": 1,
+                "app_version": "9.9.9",
                 "checks": [
-                    {"id": "stlink_probes", "name": "stlink probes", "required": False,
-                     "status": "ok", "detail": "1 found"},
-                    {"id": "jlink_probes", "name": "jlink probes", "required": False,
-                     "status": "none", "detail": "none found",
-                     "hint": "Plug in a J-Link or check its USB driver"},
+                    {"id": "libusb", "name": "libusb", "required": True,
+                     "status": "ok", "version": "1.0.27", "detail": "loaded"},
+                    {"id": "jlink_library", "name": "SEGGER J-Link library",
+                     "required": False, "status": "missing",
+                     "detail": "not found", "hint": "Install the J-Link Software Pack"},
                 ],
             }
         )
 
-    if verb == "recordings":
-        if "--delete-recording" in a:
-            which = val(a, "--delete-recording")
-            if which == "nope00000000":
-                return emit({"error": "no_such_recording", "message": "unknown id"}, 1)
-            return emit({"schema_version": 1, "deleted": which})
-        if "--delete-all-recordings" in a:
-            return emit({"schema_version": 1, "deleted": "all"})
+    if "--get-license" in a:
+        return emit({"schema_version": 1, "activated": False, "max_record_s": 30})
+
+    if "--activate-license" in a:
+        key = val(a, "--activate-license")
+        if key == "BAD-KEY":
+            return emit({"error": "activation_failed", "message": "unknown key"}, 1)
+        return emit({"schema_version": 1, "activated": True, "tier": "pro"})
+
+    if "--validate-license" in a:
+        return emit({"schema_version": 1, "activated": True, "state": "active"})
+
+    if "--deactivate-license" in a:
+        return emit({"schema_version": 1, "activated": False})
+
+    if "--list-recordings" in a:
         return emit(
             {
                 "schema_version": 1,
@@ -311,7 +246,7 @@ def main():
             }
         )
 
-    if verb == "probes":
+    if "--list-probes" in a:
         return emit(
             {
                 "schema_version": 1,
@@ -323,32 +258,59 @@ def main():
             }
         )
 
-    if verb == "symbols":
+    if "--list-symbols" in a:
         return emit(
             {
                 "schema_version": 1,
-                "elf": val(a, "--elf"),
-                "filter": val(a, "--filter") or "",
-                "symbol_legend": [
-                    {"name": "tick_counter", "address": "0x20000010", "size": 4,
-                     "type": "u32"}
+                "total_symbols": 1,
+                "returned": 1,
+                "truncated": False,
+                "symbols": [
+                    {"name": "tick_counter", "address": 536870928, "size": 4}
                 ],
-                "data_symbols": 1,
-                "text_symbols": 0,
             }
         )
 
-    if verb == "memory":
-        return emit({"schema_version": 1, "elf": val(a, "--elf"), "text": 42572,
-                     "data": 3002, "bss": 63014, "total": 108588})
+    if "--delete-recording" in a:
+        which = val(a, "--delete-recording")
+        if which == "nope00000000":
+            return emit(
+                {"error": "no_such_recording", "message": "unknown id"}, 1
+            )
+        return emit({"schema_version": 1, "deleted": which})
 
-    if verb == "query":
+    if "--query" in a:
         return handle_query(a)
 
-    if verb == "snapshot":
-        return handle_snapshot(a)
+    if "--snapshot" in a:
+        with open(val(a, "--config"), "r", encoding="utf-8") as f:
+            cfg = json.load(f)
+        if cfg.get("transport") not in ("stlink-rambuf", "jlink-rambuf"):
+            return emit(
+                {"error": "bad_arguments",
+                 "message": "--snapshot needs a rambuf transport"}, 1
+            )
+        if cfg.get("rambuf-address") == "0xEMPTY":
+            return emit(
+                {"error": "empty_snapshot",
+                 "message": "The snapshot window parsed to 0 events"}, 1
+            )
+        out = val(a, "--output")
+        if not out.endswith(".vadb"):
+            out = out.rsplit(".", 1)[0] + ".vadb"
+        make_vadb(out, total_events=777)
+        print("[headless] Snapshot saved: %s" % out, file=sys.stderr)
+        return emit(
+            {
+                "schema_version": 1,
+                "recording_id": "5aa9d4114f00",
+                "path": out,
+                "summary": {"ring": "post-mortem", "events": 777,
+                            "window_bytes": 4096, "wrapped": True, "frozen": True},
+            }
+        )
 
-    if verb == "poll":
+    if "--record-polls" in a:
         out = val(a, "--elf") + ".poll.vadb"
         make_vadb(out, total_events=42)
         return emit(
@@ -360,7 +322,45 @@ def main():
             }
         )
 
-    return handle_capture(a)
+    if "--config" in a and "--output" in a and "--duration" in a:
+        with open(val(a, "--config"), "r", encoding="utf-8") as f:
+            cfg = json.load(f)
+        if cfg.get("transport") == "fail":
+            print("[headless] Connecting...")
+            print("[headless] ERROR: Failed to connect to target")
+            return 1
+        if cfg.get("transport") == "hang":
+            # A wedged probe: no stream lines, no stop-file checks, no exit.
+            import time
+            print("[headless] Connecting...", flush=True)
+            time.sleep(120)
+            return 1
+        if cfg.get("transport") == "cooldown":
+            # Capture mode mixes progress lines with the error envelope.
+            print("[headless] Free mode max capture applied.")
+            print(json.dumps({"schema_version": 1, "error": "cooldown_active",
+                              "message": "wait 42 s", "retry_after_s": 42}))
+            print("[headless] ERROR: Capture cooldown active (42 s remaining).",
+                  file=sys.stderr)
+            return 1
+        if "--symbols" in a and "--elf" not in a:
+            print("[headless] ERROR: --symbols requires --elf")
+            return 1
+        out = val(a, "--output")
+        if not out.endswith(".vadb"):  # the real binary forces the extension
+            out = out.rsplit(".", 1)[0] + ".vadb"
+        if "--stream" in a:
+            stream_capture(a)
+        make_vadb(out)
+        print("[headless] Recording...")
+        if "--symbols" in a:
+            print("[headless] Activating MemoryPoller with %d symbol(s)"
+                  % len(val(a, "--symbols").split(",")))
+        print("[headless] Recording saved: %s (12 KB)" % out)
+        print("[headless] Recording registered: id=abcdef123456")
+        return 0
+
+    return emit({"error": "bad_arguments", "message": "unrecognized invocation"}, 1)
 
 
 if __name__ == "__main__":

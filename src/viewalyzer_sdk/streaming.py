@@ -28,9 +28,11 @@ panel, a live dashboard, a long-running monitor):
 The same recording lands on disk regardless of streaming; iteration is a
 tap, not a diversion. Early stop is portable: the session always passes
 ``--stop-file`` (the CLI finalizes the moment that file exists) and, on
-POSIX, also sends SIGINT. A CLI that stops responding is terminated by
-:meth:`StreamSession.close` after a grace period, losing the partial
-recording.
+POSIX, also sends SIGINT. Older CLI builds without ``--stop-file`` warn
+and ignore it; there SIGINT still stops POSIX sessions, while on Windows
+the session can only wait for the duration to elapse (or terminate the
+process and lose the partial recording, which :meth:`StreamSession.close`
+does as a last resort).
 
 A session is single-consumer: iterate it from one thread. Samples are
 delivered in arrival order across all streams; interleave is the wire
@@ -180,7 +182,6 @@ class StreamSession:
         try:
             self._proc = runner.popen(
                 [
-                    "capture",
                     "--config",
                     config_file,
                     *args,
@@ -350,9 +351,9 @@ class StreamSession:
         """Stop the capture if still running, reap the process, and remove
         the session's temp files. Idempotent; called by ``__exit__``.
 
-        A CLI that has not exited ``STOP_FINALIZE_PAD_S`` after the stop
-        request is terminated, which loses the partial recording;
-        :meth:`result` then reports that.
+        A CLI that ignores both stop channels (pre-``--stop-file`` build on
+        Windows) is terminated after ``STOP_FINALIZE_PAD_S``, which loses
+        the partial recording; :meth:`result` then reports that.
         """
         if self._closed:
             return

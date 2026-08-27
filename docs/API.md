@@ -32,7 +32,7 @@ Discovery order, first hit wins:
 | Step | Source | Notes |
 |---|---|---|
 | 1 | `VIEWALYZER` env var | Path to the executable. Set-but-wrong **raises** `BinaryNotFound` instead of silently falling through. |
-| 2 | `PATH` | Tries `viewalyzer-cli`, then `ViewAlyzer` and `viewalyzer` (the GUI binary runs the same commands); `.exe` is implied on Windows. |
+| 2 | `PATH` | Tries `ViewAlyzer` then `viewalyzer`; `.exe` is implied on Windows. |
 | 3 | Standard installs | Windows: `%ProgramFiles%\ViewAlyzer\`, `%LOCALAPPDATA%\Programs\ViewAlyzer\`. macOS: `/Applications` and `~/Applications` (`ViewAlyzer.app`). Linux: `/usr/local/bin/viewalyzer`, `~/.local/bin/viewalyzer`, `/opt/ViewAlyzer` (incl. AppImages). |
 
 ```python
@@ -63,11 +63,26 @@ ViewAlyzer(binary=None, *, query_timeout_s=30.0)
 
 | Method | Returns |
 |---|---|
-| `version()` | `{"schema_version": 1, "app": "ViewAlyzer", "version": "0.1.0", "core": "rust", "transports": [...]}`. Call once at startup and compare against `SCHEMA_VERSION`. |
-| `doctor()` | Setup health check: `{"checks": [{"id", "name", "required", "status": "ok"\|"missing"\|"none", "path"?, "version"?, "detail", "hint"?}], ...}`. Covers attached probes per kind, serial ports, the recordings directory and the target registry. A missing optional item is a report entry, not an error. |
-| `analyze_memory(elf)` | Static flash/RAM breakdown of a firmware image (`text`, `data`, `bss`, `total`, `flash_used`, sections). |
-| `list_symbols(elf, *, filter=None)` | Pollable data symbols (`symbol_legend`: name, address, size, type; plus `data_symbols`/`text_symbols` counts). Also handy to verify a pinned `rtt-address` against `_SEGGER_RTT` in the ELF you actually flashed. |
-| `list_probes()` | Connected debug probes: `{"probes": [{"type": "jlink"\|"stlink", "serial", "description"}], "warnings"?}`. With several probes attached, pin one via the `jlink-serial` / `stlink-serial` config keys. |
+| `version()` | `{"schema_version": 1, "app": "ViewAlyzer", "version": "1.2.0"}`. Call once at startup and compare against `SCHEMA_VERSION`. |
+| `doctor(*, jlink_path=None, stlink_path=None, cube_programmer_path=None, arm_gdb_path=None)` | Setup health check: `{"checks": [{"id", "name", "required", "status": "ok"\|"missing"\|"none", "path"?, "version"?, "detail", "hint"?}], "app_version", ...}`. Covers the direct probe drivers, the SEGGER J-Link library, arm-none-eabi-gdb, and attached probes. A missing optional tool is a report entry, not an error. |
+| `analyze_memory(elf, *, map_file=None)` | Static flash/RAM breakdown of a firmware image. |
+| `list_symbols(elf, *, filter=None)` | Pollable symbols (`symbols`: name, address, size, type; plus `total_symbols`/`truncated`). Also handy to verify a pinned `rtt-address` against `_SEGGER_RTT` in the ELF you actually flashed. |
+| `list_probes(*, jlink_path=None, stlink_path=None, cube_programmer_path=None)` | Connected debug probes: `{"probes": [{"type": "jlink"\|"stlink", "serial", "description"}], "warnings"?}`. With several probes attached, pin one via the `jlink-serial` / `stlink-serial` config keys. |
+
+### Licensing
+
+| Method | Notes |
+|---|---|
+| `get_license()` | Local license state + effective caps (e.g. max recording seconds). Read-only, never contacts the license server. |
+| `activate_license(key)` | Activate this machine with a key (network required). |
+| `validate_license()` | Refresh license state against the server (network required). |
+| `deactivate_license()` | Release this machine's seat (network required). |
+
+These are the only methods that talk to the license server, and each is an
+explicit call: a capture never phones home. Unlicensed installs can still
+capture, with a duration cap and a cooldown between captures; a capture
+blocked by the cooldown raises `ViewAlyzerError` with
+`code == "cooldown_active"` and `retry_after_s` in the CLI's message.
 
 ### The recording index
 
@@ -91,10 +106,10 @@ record(config, *, output, duration_s, elf=None, symbols=(), poll_hz=None,
 
 - `config`: a `.vacf` path **or an inline dict** with the same keys
   (the CLI flag names without the leading `--`: `transport`,
-  `target-device`, `cpu-clock-hz`, `rtt-channel`, `stlink-serial`, ...). Inline
+  `target-device`, `cpu-clock-hz`, `rtt-channel`, tool paths, ...). Inline
   dicts are written to a temp file for the call and cleaned up after.
-  Supported transports: `stlink-swo`, `stlink-rambuf`, `stlink-rtt`,
-  `jlink-swo`, `jlink-rambuf`, `jlink-rtt`, `udp`, `serial`.
+  Supported transports: `stlink-swo`, `stlink-rambuf`, `jlink-rambuf`,
+  `jlink-rtt`, `udp`, `serial`.
 - `elf` + `symbols`: adds a **symbol watch** to the same capture. The named
   variables are memory-polled over the debug probe while the trace records
   and land in the same recording as extra traces. Each symbol is `name` or
@@ -123,9 +138,8 @@ record_polls(elf, symbols, *, duration_s, poll_hz=100,
 
 Samples target variables over the debug probe with no firmware
 instrumentation required. Needs a probe transport (not udp/serial). Pass
-`config` to reuse a connection file, or `target_device` plus the transport
-via `extra_flags` (e.g. `["--transport", "stlink-rambuf"]`) for config-less
-mode. The poll
+`config` to reuse a connection file, or `target_device` plus tool paths via
+`extra_flags` (e.g. `["--arm-gdb", path]`) for config-less mode. The poll
 summary (`sample_count`, `sample_loss_percent`, `symbols_polled`) lands in
 `Recording.info["summary"]`. Poll timestamps are wall-clock microseconds,
 not CPU cycles.
@@ -189,6 +203,8 @@ class StreamSession   # context manager + iterator, single-consumer
 - `stop()`: finalize now, keep everything captured so far. Non-blocking;
   keep iterating (or call `result()`) to see the capture out. Works on all
   three OSes via the CLI's `--stop-file` channel (plus SIGINT on POSIX).
+  CLI builds older than `--stop-file` still stop on POSIX; on Windows they
+  run to `duration_s`.
 - `result(timeout_s=None) -> Recording`: wait for the CLI to exit and
   return the finished recording, with the same success checks and
   `ViewAlyzerError("record_failed", ...)` diagnostics as `record()`.
