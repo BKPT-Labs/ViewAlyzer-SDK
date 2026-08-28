@@ -4,7 +4,7 @@ This is the only module that knows about argv, stdio, exit codes, and the
 JSON envelope. Everything above it works with parsed dicts or a raised
 :class:`~viewalyzer_sdk.errors.ViewAlyzerError`.
 
-Contract (see the ViewAlyzer CLI Integration Guide):
+Contract (see ``docs/CLI.md`` in the ViewAlyzer repository):
 
 - every invocation is ``<binary> --headless <mode flags...>``: one process,
   one job, one payload, exit. No daemon, no session state.

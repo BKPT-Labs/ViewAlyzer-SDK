@@ -215,6 +215,16 @@ def test_compare_requires_existing_baseline(va, tmp_path):
     assert e.value.code == "file_not_found"
 
 
+def test_analyze_memory_passes_map(va, tmp_path):
+    elf = tmp_path / "fw.elf"
+    elf.write_bytes(b"ELF")
+    mp = tmp_path / "fw.map"
+    mp.write_text("Memory Configuration")
+    mem = va.analyze_memory(elf, map_file=mp)
+    assert mem["has_map_data"] is True and mem["map"]["file_path"] == str(mp)
+    assert va.analyze_memory(elf)["has_map_data"] is False
+
+
 def test_list_probes(va):
     payload = va.list_probes()
     assert payload["probes"][0]["type"] == "jlink"

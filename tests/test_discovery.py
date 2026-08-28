@@ -33,6 +33,14 @@ def test_path_lookup(tmp_path):
     assert source == "path"
 
 
+def test_path_prefers_the_dedicated_cli(tmp_path):
+    gui = _make_exe(tmp_path, "ViewAlyzer")
+    cli = _make_exe(tmp_path, "viewalyzer-cli")
+    path, source = find_viewalyzer_with_source({"PATH": str(tmp_path)})
+    assert source == "path"
+    assert path == cli and path != gui
+
+
 def test_not_found_returns_none(tmp_path):
     empty = tmp_path / "empty"
     empty.mkdir()

@@ -65,7 +65,7 @@ ViewAlyzer(binary=None, *, query_timeout_s=30.0)
 |---|---|
 | `version()` | `{"schema_version": 1, "app": "ViewAlyzer", "version": "1.2.0"}`. Call once at startup and compare against `SCHEMA_VERSION`. |
 | `doctor(*, jlink_path=None, stlink_path=None, cube_programmer_path=None, arm_gdb_path=None)` | Setup health check: `{"checks": [{"id", "name", "required", "status": "ok"\|"missing"\|"none", "path"?, "version"?, "detail", "hint"?}], "app_version", ...}`. Covers the direct probe drivers, the SEGGER J-Link library, arm-none-eabi-gdb, and attached probes. A missing optional tool is a report entry, not an error. |
-| `analyze_memory(elf, *, map_file=None)` | Static flash/RAM breakdown of a firmware image. |
+| `analyze_memory(elf, *, map_file=None)` | Static flash/RAM breakdown of a firmware image. With the linker MAP: `has_map_data` and `map` (region capacities with used/free/percent, MAP-placed sections, discarded input sections). |
 | `list_symbols(elf, *, filter=None)` | Pollable symbols (`symbols`: name, address, size, type; plus `total_symbols`/`truncated`). Also handy to verify a pinned `rtt-address` against `_SEGGER_RTT` in the ELF you actually flashed. |
 | `list_probes(*, jlink_path=None, stlink_path=None, cube_programmer_path=None)` | Connected debug probes: `{"probes": [{"type": "jlink"\|"stlink", "serial", "description"}], "warnings"?}`. With several probes attached, pin one via the `jlink-serial` / `stlink-serial` config keys. |
 
@@ -79,7 +79,8 @@ ViewAlyzer(binary=None, *, query_timeout_s=30.0)
 | `deactivate_license()` | Release this machine's seat (network required). |
 
 These are the only methods that talk to the license server, and each is an
-explicit call: a capture never phones home. Unlicensed installs can still
+explicit call: a capture never phones home. Against a ViewAlyzer build without
+a license backend they raise `ViewAlyzerError("unsupported")`. Unlicensed installs can still
 capture, with a duration cap and a cooldown between captures; a capture
 blocked by the cooldown raises `ViewAlyzerError` with
 `code == "cooldown_active"` and `retry_after_s` in the CLI's message.
@@ -401,8 +402,9 @@ rec = va.record(cfg, output="run.vadb", duration_s=10)   # DWT rows land in the 
 ```
 
 The engine validates `etr-window` against the chip profile's permitted RAM
-region; flags passed to the CLI still win over the file. See the App's
-CLI Integration Guide, "Hardware trace in the config file", for every key.
+region; flags passed to the CLI still win over the file. See the CLI
+reference (`docs/CLI.md` in the ViewAlyzer repository), "Connecting to a
+target", for every key.
 
 ### Verifying a pinned RTT address before capturing
 
