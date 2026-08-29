@@ -110,7 +110,8 @@ def test_record_then_query(real, tmp_path):
     assert rec.has_sequence_info and rec.lost_events >= 0 and rec.seq_gaps >= 0
     summary = real.query("timeline", rec, tier="summary")
     assert summary["schema_version"] in SUPPORTED_SCHEMA_VERSIONS
-    assert rec.task_stats()
+    # a bare-metal target has only synthetic lanes (ISR:, Fn:); an RTOS has real tasks too
+    assert rec.task_stats(include_synthetic=True)
 
 
 @needs_hardware
