@@ -11,7 +11,9 @@ one, and against real hardware when you also hand it a connection config:
 Nothing here asserts numbers that depend on the firmware; it asserts the
 shapes and behaviours the SDK relies on (version handshake, JSON envelopes,
 error envelopes, the `[headless]` lines that carry the recording path and
-id, and the `--stream` / `--stop-file` stop channel).
+id, and the `--stream` / `--stop-file` stop channel). The schema check is a
+membership test against SUPPORTED_SCHEMA_VERSIONS: a binary on any wire
+version this SDK understands passes.
 """
 from __future__ import annotations
 
@@ -20,7 +22,7 @@ from pathlib import Path
 
 import pytest
 
-from viewalyzer_sdk import SCHEMA_VERSION, ViewAlyzer, ViewAlyzerError
+from viewalyzer_sdk import SUPPORTED_SCHEMA_VERSIONS, ViewAlyzer, ViewAlyzerError
 
 REAL_CLI = os.environ.get("VIEWALYZER_SDK_REAL_CLI", "").strip()
 REAL_CONFIG = os.environ.get("VIEWALYZER_SDK_REAL_CONFIG", "").strip()
@@ -45,13 +47,13 @@ def real() -> ViewAlyzer:
 def test_version_handshake(real):
     info = real.version()
     assert info["app"] == "ViewAlyzer"
-    assert info["schema_version"] == SCHEMA_VERSION
+    assert info["schema_version"] in SUPPORTED_SCHEMA_VERSIONS
     assert isinstance(info["version"], str) and info["version"]
 
 
 def test_list_probes_shape(real):
     payload = real.list_probes()
-    assert payload["schema_version"] == SCHEMA_VERSION
+    assert payload["schema_version"] in SUPPORTED_SCHEMA_VERSIONS
     assert isinstance(payload["probes"], list)
     for p in payload["probes"]:
         assert {"type", "serial"} <= set(p)
@@ -59,7 +61,7 @@ def test_list_probes_shape(real):
 
 def test_list_recordings_shape(real):
     payload = real.list_recordings()
-    assert payload["schema_version"] == SCHEMA_VERSION
+    assert payload["schema_version"] in SUPPORTED_SCHEMA_VERSIONS
     assert isinstance(payload["recordings"], list)
 
 
@@ -73,20 +75,20 @@ def test_unknown_recording_is_an_error_envelope(real):
 
 def test_doctor_runs(real):
     report = real.doctor()
-    assert report["schema_version"] == SCHEMA_VERSION
+    assert report["schema_version"] in SUPPORTED_SCHEMA_VERSIONS
 
 
 @needs_elf
 def test_list_symbols_against_real_elf(real):
     syms = real.list_symbols(REAL_ELF, filter="")
-    assert syms["schema_version"] == SCHEMA_VERSION
+    assert syms["schema_version"] in SUPPORTED_SCHEMA_VERSIONS
     assert Path(syms["elf"]).name == Path(REAL_ELF).name
 
 
 @needs_elf
 def test_analyze_memory_against_real_elf(real):
     mem = real.analyze_memory(REAL_ELF)
-    assert mem["schema_version"] == SCHEMA_VERSION
+    assert mem["schema_version"] in SUPPORTED_SCHEMA_VERSIONS
     assert mem["flash_used"] > 0 and mem["has_map_data"] is False
 
 
@@ -107,7 +109,7 @@ def test_record_then_query(real, tmp_path):
     # loss counters are a bench property (probe throughput); the contract is that they are reported
     assert rec.has_sequence_info and rec.lost_events >= 0 and rec.seq_gaps >= 0
     summary = real.query("timeline", rec, tier="summary")
-    assert summary["schema_version"] == SCHEMA_VERSION
+    assert summary["schema_version"] in SUPPORTED_SCHEMA_VERSIONS
     assert rec.task_stats()
 
 

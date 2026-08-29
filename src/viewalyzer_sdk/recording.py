@@ -4,8 +4,10 @@ Two ways to read a recording, both exposed here:
 
 - **Through the CLI** (:meth:`Recording.timeline`, :meth:`Recording.events`,
   :meth:`Recording.cpu`, :meth:`Recording.timers`, :meth:`Recording.sql`,
-  ...): pre-shaped, size-bounded JSON. This is what you want for assertions
-  over analytics the app already computes.
+  :meth:`Recording.report`, the hardware-trace queries
+  :meth:`Recording.profile`, :meth:`Recording.itm_console`,
+  :meth:`Recording.dwt_data`, ...): pre-shaped, size-bounded JSON. This is
+  what you want for assertions over analytics the app already computes.
 - **Directly** (:meth:`Recording.connect`, :meth:`Recording.summary`,
   :meth:`Recording.task_stats`): a ``.vadb`` is a standard SQLite database,
   so overview reads need no subprocess at all. Connections are opened
@@ -17,6 +19,7 @@ All query-layer times are microseconds since recording start. Raw
 """
 from __future__ import annotations
 
+import contextlib
 import sqlite3
 import urllib.parse
 import warnings
@@ -128,8 +131,104 @@ class Recording:
         """ETM call-tree profile (recordings captured with instruction
         trace): top functions by self time, per-handler interrupt stats,
         per-file rollups, line-coverage counts. ``tier="raw"`` adds dynamic
-        call-graph edges."""
+        call-graph edges.
+
+        The native-driver CLI does not capture ETM and answers this verb
+        with ``ViewAlyzerError("etm_not_present")``; the statistical
+        (PC-sample) profile is :meth:`profile`."""
         return self._client.query("etm", self, tier=tier, budget=budget)
+
+    # ----- whole-recording report and Trace Domain verdicts ---------------
+
+    def report(self) -> Dict[str, Any]:
+        """The CLI's ``summary`` query: whole-recording scalars the engine
+        computes on load (duration, events by class, context switches,
+        preemptions, CPU load, channels, integrity counters), under
+        ``["data"]``. Distinct from :meth:`summary`, which reads the
+        precomputed ``va_summary`` table straight out of the file with no
+        subprocess; use that for quick assertions and this for the
+        engine's full picture."""
+        return self._client.query("summary", self)
+
+    def verdicts(self) -> Dict[str, Any]:
+        """Trace Domain verdicts: the spans where an installed domain's
+        rule fired, as ``{"count", "verdicts": [{"id", "name",
+        "severity", "t_start_us", "t_end_us", "peak", "explain",
+        "evidence": [{"channel", "at_start", "at_end", "label_start",
+        "label_end", "summary"}]}]}``. ``count == 0`` when no installed
+        domain claims a channel of this recording."""
+        return self._client.query("verdicts", self)
+
+    # ----- hardware-trace queries (DWT / ITM / SWO captures) --------------
+    #
+    # Each raises ViewAlyzerError("no_hw_trace") on a recording that holds
+    # none of the rows it reads; the message says which capture flags
+    # produce them. Payloads are enveloped: results under ["data"].
+
+    def profile(
+        self, *, elf: Optional[PathLike] = None, budget: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """PC-sample hotspots (statistical profile) from DWT PC sampling
+        over SWO or ``DWT_PCSR`` polling: ``data`` holds
+        ``total_samples``, ``sleep_samples``, ``span_s``,
+        ``sample_rate_hz``, ``hotspots[]``, ``source`` (``dwt-swo`` |
+        ``pcsr-poll``) and ``interval_cycles``. Pass *elf* to symbolicate
+        the hotspots (function names, and file:line when the image has
+        DWARF). *budget* caps the hotspot count (16 / 32 / 64)."""
+        return self._client.query("profile", self, elf=elf, budget=budget)
+
+    def itm_console(self, *, port: Optional[int] = None) -> Dict[str, Any]:
+        """ITM stimulus-port console text (a firmware ``printf`` routed to
+        the ITM): ``data["ports"]`` is a list of ``{"port", "lines":
+        [{"t_us", "text", "partial"?}], "bytes", "lines_truncated"?}``,
+        lines split on newline with the time of their first byte.
+
+        *port* keeps only that stimulus port. It is sent to the CLI as
+        ``--port N`` (newer builds filter server-side) and the returned
+        ``data["ports"]`` is also filtered here, so older builds that
+        ignore the flag behave the same."""
+        flags: List[str] = []
+        if port is not None:
+            flags += ["--port", str(int(port))]
+        payload = self._client.query("itm-console", self, extra_flags=flags)
+        if port is not None:
+            data = payload.get("data")
+            if isinstance(data, dict) and isinstance(data.get("ports"), list):
+                data["ports"] = [
+                    p
+                    for p in data["ports"]
+                    if isinstance(p, dict) and p.get("port") == int(port)
+                ]
+        return payload
+
+    def dwt_data(self, *, elf: Optional[PathLike] = None) -> Dict[str, Any]:
+        """DWT data-trace watches (``--dwt-watch`` comparators):
+        ``data["watches"]`` is a list of ``{"cmp", "name", "address",
+        "function", "count", "first": [{"t_us", "value", "rw", "pc"?}]}``
+        with up to 256 samples per comparator. Pass *elf* to symbolicate
+        the access PCs of ``:pc`` watches."""
+        return self._client.query("dwt-data", self, elf=elf)
+
+    def dwt_exc(self) -> Dict[str, Any]:
+        """DWT exception trace (``--dwt-exc``): ``data["exceptions"]`` per
+        vector ``{"num", "name", "enter", "exit", "return", "max_depth"}``
+        plus ``data["events"]`` ``{"t_us", "num", "func"}`` (up to 4096)."""
+        return self._client.query("dwt-exc", self)
+
+    def dwt_counters(self) -> Dict[str, Any]:
+        """DWT event counters (``--dwt-counters``): ``data["counters"]``
+        keyed ``cpi``, ``exc``, ``sleep``, ``lsu``, ``fold``, ``cyc`` with
+        ``{"wraps", "cycles", "rate_per_s"}`` each, ``span_s``, and
+        ``cpu_load_pct`` derived from the sleep counter (``None`` without
+        it)."""
+        return self._client.query("dwt-counters", self)
+
+    def swo_load(self) -> Dict[str, Any]:
+        """SWO pin utilisation of an SWO capture: ``data`` holds
+        ``bytes``, ``seconds``, ``bytes_per_s``, ``swo_hz``, ``share_pct``
+        and ``overflows`` (ITM overflow packets: the trace port was
+        oversubscribed and data was lost on-chip)."""
+        return self._client.query("swo-load", self)
 
     # ----- untiered CLI queries -------------------------------------------
 
@@ -286,14 +385,19 @@ class Recording:
     def summary(self) -> Dict[str, Number]:
         """The precomputed whole-trace overview (``va_summary``):
         ``total_events``, ``cpu_load_percent``, ``context_switches``,
-        ``span_seconds``, ``corrupt_bytes``, ..."""
+        ``span_seconds``, ``corrupt_bytes``, ... Read straight from the
+        file; the engine-computed equivalent through the CLI is
+        :meth:`report`."""
         return self._key_value_table("va_summary")
 
     def task_stats(self, *, include_synthetic: bool = False) -> List[dict]:
         """Per-task whole-trace stats (``va_task_stats``) as a list of dicts,
         highest CPU first. Synthetic lanes (``_RTOS_``, ``ISR:*``, ``Fn:*``)
         are filtered out unless *include_synthetic* is set."""
-        with self.connect() as con:
+        # closing(): a sqlite3 connection's own context manager only commits;
+        # an open read handle would block the CLI from overwriting the file
+        # on Windows.
+        with contextlib.closing(self.connect()) as con:
             con.row_factory = sqlite3.Row
             rows = [
                 dict(r)
@@ -373,7 +477,7 @@ class Recording:
     def _key_value_table(self, table: str) -> Dict[str, Number]:
         if table not in ("meta", "va_summary"):
             raise ViewAlyzerError("bad_arguments", f"not a key/value table: {table}")
-        with self.connect() as con:
+        with contextlib.closing(self.connect()) as con:
             rows = con.execute(f"SELECT key, value FROM {table}").fetchall()
         return {key: _coerce(value) for key, value in rows}
 

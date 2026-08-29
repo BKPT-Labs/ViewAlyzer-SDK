@@ -17,6 +17,7 @@ import json
 import os
 import re
 import tempfile
+import warnings
 from pathlib import Path
 from typing import (
     TYPE_CHECKING,
@@ -30,27 +31,37 @@ from typing import (
 )
 
 from .discovery import find_viewalyzer
-from .errors import BinaryNotFound, ViewAlyzerError
+from .errors import BinaryNotFound, ViewAlyzerError, ViewAlyzerWarning
 from .recording import Recording
 from .runner import (
     DEFAULT_QUERY_TIMEOUT_S,
     RECORD_TIMEOUT_PAD_S,
     BinarySpec,
     Runner,
+    parse_payload,
 )
 
 if TYPE_CHECKING:  # pragma: no cover - import cycle guard
     from .streaming import StreamSession
 
-#: The agent wire-protocol version this SDK was written against.
+#: The agent wire-protocol version this SDK was written against (2 since
+#: the hardware-trace queries and the extra stream events; additive over 1).
 #: Check the CLI's own value once via :meth:`ViewAlyzer.version`.
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
+#: Every wire-protocol version whose payload shapes this SDK understands.
+#: ``viewalyzer-doctor`` warns only when the binary reports something else.
+SUPPORTED_SCHEMA_VERSIONS = (1, 2)
 
 #: Query verbs with three tiers (``summary`` | ``bucketed`` | ``raw``).
 TIERED_VERBS = ("timeline", "events", "user-traces")
-#: Query verbs with two tiers (``summary`` | ``raw``).
+#: Query verbs with two tiers (``summary`` | ``raw``). ``etm`` is kept for
+#: recordings from an ETM-capable engine; the native-transport CLI answers
+#: it with ``ViewAlyzerError("etm_not_present")``.
 TWO_TIER_VERBS = ("timers", "etm")
-#: Query verbs without tiers.
+#: Query verbs without tiers. ``summary`` through ``swo-load`` at the end
+#: are the whole-recording scalars, the Trace Domain verdicts, and the
+#: hardware-trace (DWT / ITM / SWO) queries; the latter raise
+#: ``no_hw_trace`` on a recording that carries none of those rows.
 UNTIERED_VERBS = (
     "inversions",
     "cpu",
@@ -63,8 +74,19 @@ UNTIERED_VERBS = (
     "slice-details",
     "events-all",
     "user-traces-all",
+    "summary",
+    "verdicts",
+    "profile",
+    "itm-console",
+    "dwt-data",
+    "dwt-exc",
+    "dwt-counters",
+    "swo-load",
 )
 QUERY_VERBS = (*TIERED_VERBS, *TWO_TIER_VERBS, *UNTIERED_VERBS)
+
+#: Cores ``hwtrace --dry-run`` can plan a register image for.
+HWTRACE_ARCHS = ("v6m", "v7m", "v8m")
 
 # Stable stdout contracts of capture mode (see the CLI Integration Guide):
 #   [headless] Recording saved: /abs/path/run1.vadb (5576 KB)
@@ -119,9 +141,11 @@ class ViewAlyzer:
     # ----- handshake / utilities ------------------------------------------
 
     def version(self) -> Dict[str, Any]:
-        """``{"schema_version": 1, "app": "ViewAlyzer", "version": "1.2.0"}``.
-        Call once at startup; if ``schema_version`` differs from
-        :data:`SCHEMA_VERSION`, response shapes may not match this SDK."""
+        """``{"schema_version": 2, "app": "ViewAlyzer", "version": "1.2.0",
+        "core": "rust", "edition", "transports": [...], "license": {...}}``.
+        Call once at startup; if ``schema_version`` is not in
+        :data:`SUPPORTED_SCHEMA_VERSIONS`, response shapes may not match
+        this SDK."""
         return self._runner.run_json(["--version"], self._query_timeout_s)
 
     def doctor(
@@ -132,13 +156,18 @@ class ViewAlyzer:
         cube_programmer_path: Optional[PathLike] = None,
         arm_gdb_path: Optional[PathLike] = None,
     ) -> Dict[str, Any]:
-        """Setup health check: every external tool and probe the app can
-        use, with resolved paths, versions, and a ``hint`` for anything
-        missing. Returns ``{"checks": [{"id", "name", "required", "status":
-        "ok"|"missing"|"none", "path"?, "version"?, "detail", "hint"?},
-        ...], "app_version", ...}``. A missing optional tool is a report
-        entry, not an error. Tool-path arguments are optional overrides,
-        same as the capture flags."""
+        """Setup health check. Returns ``{"checks": [{"id", "name",
+        "required", "status": "ok"|"missing"|"none"|"free", "path"?,
+        "version"?, "detail"?, "hint"?}, ...], "app_version", "edition",
+        "license"}``. The native-driver CLI reports ``probes_stlink``,
+        ``probes_jlink``, ``probes_cmsis_dap`` (``none`` = none connected),
+        ``serial_ports``, ``recordings_dir``, ``probe_rs_targets`` and
+        ``license`` (``free`` = free-mode caps apply); older builds listed
+        external tools (``libusb``, ``jlink_library``, ...) instead. A
+        missing optional item is a report entry, not an error.
+
+        The tool-path arguments are kept for older builds that spawned
+        vendor tools; the native-driver CLI accepts and ignores them."""
         args: List[Any] = ["--doctor"]
         args += _tool_path_flags(
             jlink_path, stlink_path, cube_programmer_path, arm_gdb_path
@@ -171,14 +200,120 @@ class ViewAlyzer:
         cube_programmer_path: Optional[PathLike] = None,
     ) -> Dict[str, Any]:
         """Connected debug probes with serial numbers:
-        ``{"probes": [{"type": "jlink"|"stlink", "serial", "description"}],
-        "warnings": [...]?}``. Pass a serial to a capture via the
-        ``jlink-serial`` / ``stlink-serial`` config keys when more than one
-        probe is attached (with a single probe the drivers auto-select).
-        Tool paths are optional overrides for the probe enumerators."""
+        ``{"probes": [{"type": "jlink"|"stlink"|"cmsis-dap", "serial",
+        "description", "vid"?, "pid"?}], "warnings": [...]?}``. Pass a
+        serial to a capture via the ``jlink-serial`` / ``stlink-serial``
+        config keys when more than one probe is attached (with a single
+        probe the drivers auto-select).
+
+        The tool-path arguments are kept for older builds that spawned
+        vendor enumerators; the native-driver CLI accepts and ignores
+        them."""
         args: List[Any] = ["--list-probes"]
         args += _tool_path_flags(jlink_path, stlink_path, cube_programmer_path, None)
         return self._runner.run_json(args, self._query_timeout_s)
+
+    def list_ports(self) -> Dict[str, Any]:
+        """Serial ports the ``serial`` transport can open:
+        ``{"ports": ["COM7", "/dev/ttyACM0", ...]}``. Names, not device
+        descriptions; pass one as the ``serial-port`` config key."""
+        return self._runner.run_json(["--list-ports"], self._query_timeout_s)
+
+    def list_targets(self, *, filter: Optional[str] = None) -> Dict[str, Any]:
+        """probe-rs target names the debug-probe transports accept as
+        ``target-device``: ``{"filter", "count", "targets": [{"name",
+        "architecture"}, ...]}``. *filter* is a case-insensitive substring
+        (``"STM32G474"``); omit it for the whole registry (thousands of
+        entries)."""
+        args: List[Any] = ["--list-targets"]
+        if filter:
+            args += ["--filter", filter]
+        return self._runner.run_json(args, self._query_timeout_s)
+
+    def hwtrace_dry_run(
+        self,
+        *,
+        arch: str,
+        cpu_clock_hz: int,
+        swo_freq_hz: int = 2_000_000,
+        itm_port: int = 1,
+        caps: Union[Mapping[str, Any], str, None] = None,
+        hardware_trace: Union[Mapping[str, Any], PathLike, None] = None,
+        no_init_swo: bool = False,
+        extra_flags: Sequence[str] = (),
+    ) -> Dict[str, Any]:
+        """The ordered register image a capture would program for a
+        hardware-trace (ITM / DWT / TPIU) setup on a given core, without
+        touching a target: ``{"schema", "arch", "cpu_hz", "swo_hz",
+        "writes": [{"reg", "addr", "value"}], "refused": [{"feature",
+        "reason"}], "applied"}``. Use it to review or diff a board's
+        ``hardware-trace`` block in CI, or to compare against
+        ``bkpt_gdbserver --dry-run`` for the same inputs.
+
+        *arch* is one of :data:`HWTRACE_ARCHS` (``v6m``, ``v7m``, ``v8m``).
+        *cpu_clock_hz* is required (the TPIU prescaler derives from it);
+        *swo_freq_hz* and *itm_port* mirror the capture keys. *caps*
+        describes the core's trace capabilities (``numcomp``, ``notrcpkt``,
+        ``nocyccnt``, ``noprfcnt``, ``itm``, ``tpiu``) as a dict, a JSON
+        string, or ``"@file"``; default: four comparators, everything
+        present. *hardware_trace* is the ``hardware-trace`` config block
+        (dict, JSON string, or a file path / ``"@file"``). *extra_flags*
+        adds flat overrides such as ``["--dwt-watch", "0x20000410:4"]``.
+
+        Unlike the other query verbs, the CLI prints this image bare (no
+        ``schema_version`` wrapper) and answers a configuration error with
+        exit code 2 and ``{"error": "<reason>"}``; that is raised as
+        ``ViewAlyzerError("bad_config", reason)``.
+        """
+        if arch not in HWTRACE_ARCHS:
+            raise ViewAlyzerError(
+                "bad_arguments", f"arch must be one of {HWTRACE_ARCHS}, got {arch!r}"
+            )
+        args: List[Any] = [
+            "hwtrace",
+            "--dry-run",
+            "--arch",
+            arch,
+            "--cpu-clock-hz",
+            int(cpu_clock_hz),
+            "--swo-freq-hz",
+            int(swo_freq_hz),
+            "--itm-port",
+            int(itm_port),
+        ]
+        if caps is not None:
+            args += ["--caps", _json_or_ref(caps)]
+        if hardware_trace is not None:
+            args += ["--hardware-trace", _json_or_ref(hardware_trace, path_ok=True)]
+        if no_init_swo:
+            args.append("--no-init-swo")
+        args += list(extra_flags)
+        r = self._runner.run(args, self._query_timeout_s)
+        text = r.stdout.strip()
+        if not text:
+            raise ViewAlyzerError(
+                "bad_output",
+                f"empty stdout (exit {r.exit_code}); stderr: {r.stderr.strip()[:400]}",
+            )
+        payload = parse_payload(text)
+        if payload is None:
+            raise ViewAlyzerError(
+                "bad_output",
+                f"non-JSON stdout (exit {r.exit_code}): no JSON object line "
+                f"found. head: {text[:200]}",
+            )
+        if not isinstance(payload, dict):
+            raise ViewAlyzerError(
+                "bad_output", f"expected a JSON object, got {type(payload).__name__}"
+            )
+        if "error" in payload:
+            if "message" in payload:
+                # A regular envelope (e.g. bad_arguments from the verb itself).
+                from .errors import raise_for_envelope
+
+                raise_for_envelope(payload)
+            raise ViewAlyzerError("bad_config", str(payload.get("error") or "error"))
+        return payload
 
     # ----- licensing ------------------------------------------------------
 
@@ -263,13 +398,19 @@ class ViewAlyzer:
         keys (``transport``, ``target-device``, ``cpu-clock-hz``, tool
         paths, ...). CLI flags win over config-file values.
 
-        Pass *elf* and *symbols* to add a symbol watch to the same capture:
-        the named variables are memory-polled over the debug probe while
-        the trace records (at *poll_hz*, if given) and land in the same
-        recording as extra traces. Each symbol is ``name`` or
-        ``name:type`` with type one of ``u8 u16 u32 i8 i16 i32 f32``.
-        For RAM-buffer transports, *elf* alone also lets the CLI resolve
-        the ring's control-block address from the firmware image.
+        Pass *elf* to let the CLI resolve the ring's control-block address
+        (RAM-buffer transports) or ``_SEGGER_RTT`` (RTT) from the firmware
+        image instead of scanning RAM.
+
+        *symbols* / *poll_hz* were the symbol watch of older engines (the
+        named variables memory-polled during the capture). **The
+        native-driver CLI does not poll symbols during a capture**: it
+        accepts the flags and ignores them, so the SDK emits a
+        :class:`~viewalyzer_sdk.errors.ViewAlyzerWarning` and the capture
+        runs without the watch. Use :meth:`record_polls` for a memory poll,
+        or a ``--dwt-watch`` hardware watch via *extra_flags* on an SWO
+        transport. Each symbol is ``name`` or ``name:type`` with type one
+        of ``u8 u16 u32 i8 i16 i32 f32``; symbols still need *elf*.
 
         *extra_flags* are appended verbatim for flags without a dedicated
         parameter (e.g. ``["--log", path]`` or port overrides).
@@ -295,6 +436,7 @@ class ViewAlyzer:
             args += ["--symbols", ",".join(symbols)]
         if poll_hz is not None:
             args += ["--poll-hz", poll_hz]
+        _warn_symbols_on_capture(symbols, poll_hz, "record")
         args += list(extra_flags)
 
         timeout = timeout_s if timeout_s is not None else duration_s + RECORD_TIMEOUT_PAD_S
@@ -338,17 +480,19 @@ class ViewAlyzer:
         """Record like :meth:`record`, but stream live samples while the
         capture runs.
 
-        Starts the same capture as :meth:`record` (same *config*, *elf* /
-        *symbols* / *poll_hz* semantics, same ``.vadb`` landing on disk)
-        with the CLI's ``--stream`` tap enabled, and returns a
+        Starts the same capture as :meth:`record` (same *config* / *elf*
+        semantics, same ``.vadb`` landing on disk) with the CLI's
+        ``--stream`` tap enabled, and returns a
         :class:`~viewalyzer_sdk.streaming.StreamSession` immediately, while
         the CLI is still connecting. Iterate the session for
         :class:`~viewalyzer_sdk.streaming.StreamSample` points as they
-        arrive (firmware user traces, polled symbols, and ``--dwt-watch``
-        hardware watches via *extra_flags*; NOT slices, PC samples, or
-        other timeline events, which land in the recording only), stop
-        early with :meth:`~viewalyzer_sdk.streaming.StreamSession.stop`,
-        and take the finished Recording from
+        arrive (firmware user traces, Trace Domain sampled channels, and
+        ``--dwt-watch`` hardware watches via *extra_flags*), or use
+        :meth:`~viewalyzer_sdk.streaming.StreamSession.events` for the
+        whole live feed (ITM console text, PC-sample batches, SWO load,
+        DWT data-trace rows, exception counts as well); stop early with
+        :meth:`~viewalyzer_sdk.streaming.StreamSession.stop`, and take the
+        finished Recording from
         :meth:`~viewalyzer_sdk.streaming.StreamSession.result`::
 
             with va.stream("board.vacf", output="run.vadb",
@@ -357,11 +501,15 @@ class ViewAlyzer:
                     chart.add(sample.name, sample.t_s, sample.value)
             rec = s.result()
 
-        Sample ``t_us`` is the live arrival timeline (t=0 at the first
-        sample); the recording keeps exact device-clock timestamps, so use
-        the Recording for analysis and the stream for display. Early stop
-        needs a CLI with ``--stop-file`` support to work on Windows;
-        elsewhere SIGINT covers older builds.
+        *symbols* / *poll_hz* are accepted but **not polled during a
+        capture by the native-driver CLI** (a
+        :class:`~viewalyzer_sdk.errors.ViewAlyzerWarning` says so); use
+        :meth:`record_polls` for a memory poll. Sample ``t_us`` is the live
+        arrival timeline (t=0 at the first sample); the recording keeps
+        exact device-clock timestamps, so use the Recording for analysis
+        and the stream for display. Early stop needs a CLI with
+        ``--stop-file`` support to work on Windows; elsewhere SIGINT covers
+        older builds.
 
         *timeout_s* bounds the whole session (default: *duration_s* plus
         connect/finalize headroom); past it, iteration raises and the CLI
@@ -386,6 +534,7 @@ class ViewAlyzer:
             args += ["--symbols", ",".join(symbols)]
         if poll_hz is not None:
             args += ["--poll-hz", poll_hz]
+        _warn_symbols_on_capture(symbols, poll_hz, "stream")
         args += list(extra_flags)
         return StreamSession(
             self,
@@ -410,17 +559,25 @@ class ViewAlyzer:
         timeout_s: Optional[float] = None,
     ) -> Recording:
         """Sample target variables over the debug probe; no firmware
-        instrumentation required. Needs a probe transport (not udp/serial).
+        instrumentation required.
 
-        Pass *config* to reuse a connection file, or *target_device* (plus
-        any tool-path flags via *extra_flags*, e.g. ``["--arm-gdb", path]``)
-        for config-less mode. Each symbol is ``name`` or ``name:type``.
-        Returns a :class:`Recording` with the poll summary in
-        ``info["summary"]``.
+        **A debug-probe transport is required in practice**: pass *config*
+        as a ``.vacf`` path or a dict with at least ``transport``
+        (``stlink-rambuf``, ``stlink-swo``, ``stlink-rtt``, ``jlink-*``) and
+        usually ``target-device``. A bare *target_device* is not enough
+        for the native-driver CLI (it answers ``bad_config``), so the SDK
+        raises ``ViewAlyzerError("bad_arguments", ...)`` up front when
+        neither *config* nor a ``--transport`` in *extra_flags* names one.
+        *target_device* still overrides the config's value. Each symbol
+        is ``name`` or ``name:type`` (``u8 u16 u32 i8 i16 i32 f32``).
+        Returns a :class:`Recording` with the poll summary
+        (``sample_count``, ``sample_loss_percent``, ``symbols_polled``,
+        ``poll_hz``) in ``info["summary"]``.
         """
         symbols = _as_symbol_list(symbols)
         if not symbols:
             raise ViewAlyzerError("bad_arguments", "no symbols to poll")
+        _require_poll_transport(config, extra_flags)
         args: List[Any] = [
             "--record-polls",
             "--elf",
@@ -510,12 +667,22 @@ class ViewAlyzer:
         elf: Optional[PathLike] = None,
         extra_flags: Sequence[str] = (),
         timeout_s: Optional[float] = None,
+        kinds: Union[str, Sequence[str], None] = None,
+        channels: Union[str, Sequence[str], None] = None,
+        threshold_us: Optional[float] = None,
     ) -> Dict[str, Any]:
         """One ``--query`` call. Prefer the named helpers on
         :class:`Recording`; this generic form exists for flag combinations
         the helpers don't cover. *extra_flags* are appended verbatim (the
         ``series`` and ``fingerprint`` helpers use this for their
-        verb-specific flags)."""
+        verb-specific flags).
+
+        *kinds* filters ``events`` / ``events-all`` by event kind and
+        *channels* filters ``user-traces`` / ``user-traces-all`` by channel
+        name or code (a bare string or a sequence; sent as ``--kinds a,b``
+        / ``--channels a,b``). *threshold_us* is the lateness a ``timers``
+        fire must exceed to count as a violation (``--threshold-us``,
+        default 500)."""
         if verb not in QUERY_VERBS:
             raise ViewAlyzerError(
                 "bad_arguments",
@@ -539,6 +706,12 @@ class ViewAlyzer:
             args += ["--sql", sql]
         if elf is not None:
             args += ["--elf", _existing(elf, "ELF")]
+        if kinds:
+            args += ["--kinds", ",".join(_as_symbol_list(kinds))]
+        if channels:
+            args += ["--channels", ",".join(_as_symbol_list(channels))]
+        if threshold_us is not None:
+            args += ["--threshold-us", threshold_us]
         args += list(extra_flags)
         return self._runner.run_json(
             args, timeout_s if timeout_s is not None else self._query_timeout_s
@@ -572,6 +745,68 @@ def _as_symbol_list(symbols: Union[str, Sequence[str]]) -> List[str]:
     if isinstance(symbols, str):
         return [symbols]
     return list(symbols)
+
+
+def _warn_symbols_on_capture(
+    symbols: Sequence[str], poll_hz: Optional[int], method: str
+) -> None:
+    """The native-driver CLI's capture verb accepts ``--symbols`` /
+    ``--poll-hz`` and ignores them (only the poll verb reads them). Say so
+    instead of letting the caller wait for samples that never come."""
+    if not symbols and poll_hz is None:
+        return
+    what = "symbols" if symbols else "poll_hz"
+    warnings.warn(
+        f"ViewAlyzer.{method}(): {what} are not polled during a capture by "
+        "this CLI (the flags are accepted and ignored); the capture runs "
+        "without the symbol watch. Use ViewAlyzer.record_polls() for a "
+        "memory poll, or a --dwt-watch hardware watch via extra_flags on an "
+        "SWO transport.",
+        ViewAlyzerWarning,
+        stacklevel=3,
+    )
+
+
+def _require_poll_transport(
+    config: Optional[ConfigSpec], extra_flags: Sequence[str]
+) -> None:
+    """The poll verb needs a debug-probe transport; fail before spawning
+    when it is knowably missing (no config and no --transport flag, or an
+    inline dict without one). A .vacf path is left to the CLI to judge."""
+    if config is None:
+        if any(
+            f == "--transport" or str(f).startswith("--transport=")
+            for f in extra_flags
+        ):
+            return
+        raise ViewAlyzerError(
+            "bad_arguments",
+            "record_polls needs a debug-probe transport: pass config= as a "
+            ".vacf path or a dict with at least 'transport' (stlink-rambuf, "
+            "stlink-swo, stlink-rtt, jlink-rambuf, jlink-rtt, jlink-swo) and "
+            "'target-device'. A bare target_device is not enough for this CLI.",
+        )
+    if isinstance(config, Mapping) and not config.get("transport"):
+        raise ViewAlyzerError(
+            "bad_arguments",
+            "record_polls config dict needs a 'transport' key naming a "
+            "debug-probe transport (stlink-rambuf, stlink-swo, stlink-rtt, "
+            "jlink-rambuf, jlink-rtt, jlink-swo).",
+        )
+
+
+def _json_or_ref(value: Any, *, path_ok: bool = False) -> str:
+    """A ``--caps`` / ``--hardware-trace`` argument: dicts become JSON
+    text, ``@file`` references and JSON strings pass through, and (when
+    *path_ok*) an existing file path becomes ``@path``."""
+    if isinstance(value, Mapping):
+        return json.dumps(dict(value))
+    text = str(value)
+    if text.startswith("@") or text.lstrip().startswith("{"):
+        return text
+    if path_ok and Path(text).is_file():
+        return "@" + text
+    return text
 
 
 def _raise_any_error_envelope(stdout: str) -> None:

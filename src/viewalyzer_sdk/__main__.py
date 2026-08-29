@@ -1,15 +1,30 @@
 """``viewalyzer-doctor`` / ``python -m viewalyzer_sdk``: report whether the
 SDK can find and talk to the ViewAlyzer executable, then run the app's own
-setup health check (external tools, probes). Exits non-zero if the SDK
-cannot reach the executable. Handy as the first step of a CI job."""
+setup health check (probes, serial ports, recordings dir, license). Exits
+non-zero if the SDK cannot reach the executable. Handy as the first step
+of a CI job."""
 from __future__ import annotations
 
 import json
 import sys
+from typing import Any, Optional
 
-from .client import SCHEMA_VERSION, ViewAlyzer
+from .client import SCHEMA_VERSION, SUPPORTED_SCHEMA_VERSIONS, ViewAlyzer
 from .discovery import ENV_VAR, find_viewalyzer_with_source
 from .errors import ViewAlyzerError
+
+
+def schema_warning(schema: Any) -> Optional[str]:
+    """The warning line for a binary whose ``schema_version`` this SDK was
+    not written against, or None when it is one of
+    :data:`SUPPORTED_SCHEMA_VERSIONS`."""
+    if schema in SUPPORTED_SCHEMA_VERSIONS:
+        return None
+    return (
+        f"warning: CLI schema_version is {schema}, this SDK targets "
+        f"{SCHEMA_VERSION} (understands {SUPPORTED_SCHEMA_VERSIONS}); "
+        "response shapes may differ."
+    )
 
 
 def main() -> int:
@@ -34,15 +49,13 @@ def main() -> int:
         print(f"handshake failed: {e}")
         return 3
     print(f"version: {json.dumps(info)}")
-    schema = info.get("schema_version")
-    if schema != SCHEMA_VERSION:
-        print(
-            f"warning: CLI schema_version is {schema}, this SDK targets "
-            f"{SCHEMA_VERSION} - response shapes may differ."
-        )
+    warning = schema_warning(info.get("schema_version"))
+    if warning:
+        print(warning)
 
-    # The app's own health check: tools and probes, with hints for anything
-    # missing. Advisory only; a missing optional tool is not a failure here.
+    # The app's own health check: probes, ports, dirs, license, with hints
+    # for anything missing. Advisory only; a missing optional item is not
+    # a failure here.
     try:
         report = va.doctor()
     except ViewAlyzerError as e:
@@ -55,6 +68,8 @@ def main() -> int:
             line += f" {check['version']}"
         if check.get("path"):
             line += f" ({check['path']})"
+        elif check.get("detail"):
+            line += f": {check['detail']}"
         print(line)
         if status != "ok" and check.get("hint"):
             print(f"            hint: {check['hint']}")

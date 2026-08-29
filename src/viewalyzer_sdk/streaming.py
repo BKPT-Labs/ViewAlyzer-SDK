@@ -1,21 +1,26 @@
 """Live streaming of a running capture (``--stream``).
 
 With ``--stream``, the headless CLI emits one JSON object per line on
-**stderr** while a capture records: a ``stream_init`` banner first, a
-``stream_meta`` line per discovered stream (firmware-emitted user traces
-as their setup packets arrive; ``--symbols`` polls and ``--dwt-watch``
-comparators up front), one ``stream_sample`` per point, and
-``stream_end`` when the capture finalizes. Everything else on stderr
-stays a plain diagnostic line.
+**stderr** while a capture records. Every line has a ``t`` key naming its
+kind; everything else on stderr stays a plain diagnostic line.
 
-The feed carries data channels only: named series of timestamped values.
-Task/scheduler slices, PC samples, exception trace, string messages, and
-live CPU load are captured into the ``.vadb`` but not emitted live; view
-those in the app or query the finished Recording.
+| ``t`` | Payload | When |
+|---|---|---|
+| ``stream_init`` | ``schema_version``, ``transport`` (captures) or ``source: "poll"`` + ``poll_hz`` (polls), ``started_utc`` | once, first |
+| ``stream_meta`` | ``id``, ``name``, ``display`` (captures) / ``type`` (polls) | per discovered channel, as its setup packet arrives |
+| ``stream_sample`` | ``id``, ``t_us``, ``value`` | per data point (user traces, sampled channels, DWT watches) |
+| ``itm_text`` | ``port``, ``t_us``, ``text`` | ITM stimulus-port console bytes (SWO captures) |
+| ``pc_samples`` | ``total``, ``sleep``, ``pcs[]`` | a batch of DWT PC samples since the previous line |
+| ``swo_load`` | ``bytes_per_s``, ``share_pct``, ``overflows`` | SWO pin utilisation, periodic |
+| ``dwt_data`` | ``rows: [{cmp, t_us, v, size, w, pc}]`` | DWT data-trace values, per comparator |
+| ``exc`` | ``total``, ``max_depth``, ``exceptions: [{num, name, enter, exit, return, max_depth}]`` | cumulative exception-trace counts, at most every 200 ms |
+| ``stream_end`` | | older builds only; the native-driver CLI ends the feed by closing stderr (EOF) |
 
 :class:`StreamSession` wraps that feed for hosts that want to graph or
 react to trace data while the recording is still being written (an IDE
-panel, a live dashboard, a long-running monitor):
+panel, a live dashboard, a long-running monitor). Iterating the session
+yields the data points only; :meth:`StreamSession.events` yields the whole
+feed:
 
     with va.stream("board.vacf", output="run.vadb", duration_s=60) as s:
         for sample in s:                # live, in arrival order
@@ -24,6 +29,13 @@ panel, a live dashboard, a long-running monitor):
                 s.stop()                # finalize early, keep the partial
     rec = s.result()                    # the finished Recording
     assert rec.total_events > 0
+
+    with va.stream(cfg, output="run.vadb", duration_s=60) as s:
+        for ev in s.events():           # samples AND everything else
+            if isinstance(ev, StreamSample):
+                chart.add(ev.name, ev.t_s, ev.value)
+            elif ev.t == "itm_text":
+                console.write(ev.data["text"])
 
 The same recording lands on disk regardless of streaming; iteration is a
 tap, not a diversion. Early stop is portable: the session always passes
@@ -34,9 +46,12 @@ the session can only wait for the duration to elapse (or terminate the
 process and lose the partial recording, which :meth:`StreamSession.close`
 does as a last resort).
 
-A session is single-consumer: iterate it from one thread. Samples are
-delivered in arrival order across all streams; interleave is the wire
-order, not a per-stream sort.
+A session is single-consumer: iterate it from one thread, and pick ONE of
+the two consumers per session (``for sample in s`` or ``s.events()``);
+both drain the same queue, so mixing them while the capture runs raises
+rather than silently splitting the feed. Lines are delivered in arrival
+order across all streams; interleave is the wire order, not a per-stream
+sort.
 """
 from __future__ import annotations
 
@@ -77,19 +92,23 @@ STOP_FINALIZE_PAD_S = 15.0
 _LOG_KEEP = 2000
 
 # Queue sentinels (identity-compared).
-_END = object()  # the CLI said stream_end
-_EOF = object()  # stderr closed (process exited)
+_END = object()  # the CLI said stream_end (older builds)
+_EOF = object()  # stderr closed (process exited); how the native CLI ends
 
 
 @dataclass(frozen=True)
 class StreamMeta:
-    """One announced stream: a firmware user trace or a polled symbol.
+    """One announced stream: a firmware user trace, a sampled channel, a
+    DWT watch, or a polled symbol.
 
     Attributes:
         id: wire id, unique within the session; samples carry it.
-        name: the trace name the firmware registered (or the symbol name).
-        type: presentation kind from the firmware's registration, e.g.
-            ``graph``, ``counter``, ``gauge``, ``toggle``, ``histogram``.
+        name: the trace name the firmware registered (or the symbol name,
+            or the ``name@`` label of a DWT watch).
+        type: presentation kind, e.g. ``graph``, ``counter``, ``gauge``,
+            ``toggle``, ``histogram``. Read from the line's ``type`` key
+            when present (poll streams, where it is the symbol's C type),
+            else its ``display`` key (captures), else ``graph``.
     """
 
     id: int
@@ -105,8 +124,12 @@ class StreamSample:
         id: the stream's wire id (see :class:`StreamMeta`).
         t_us: microseconds since the first sample of the session (arrival
             timeline; the recording on disk keeps exact device-clock times).
-        value: the sample value; ``int`` unless ``is_float``.
-        is_float: True for f32 traces/symbols.
+        value: the sample value. The native-driver CLI sends every value
+            as a JSON number with a fraction (``98.0``), so this is a
+            ``float`` there; older builds sent ints for integer traces.
+        is_float: the line's ``is_float`` flag when the CLI sends one
+            (older builds, f32 traces/symbols); the native-driver CLI does
+            not, so it is False there regardless of *value*.
         name: the stream's name, when its meta line has arrived (the CLI
             announces polls up front and firmware traces before their
             points in practice, so this is rarely None).
@@ -124,6 +147,32 @@ class StreamSample:
     def t_s(self) -> float:
         """Sample time in seconds (float), for plotting."""
         return self.t_us / 1e6
+
+
+@dataclass(frozen=True)
+class StreamEvent:
+    """Any stream line that is not a data point, delivered by
+    :meth:`StreamSession.events`: ``stream_init``, ``stream_meta``,
+    ``itm_text``, ``pc_samples``, ``swo_load``, ``dwt_data``, ``exc``,
+    ``stream_end``, and whatever kinds a newer CLI adds (nothing is
+    dropped; check ``t``).
+
+    Attributes:
+        t: the line's kind (its ``t`` key).
+        t_us: the line's ``t_us`` when it carries one (``itm_text``),
+            else None; batch lines (``dwt_data``, ``pc_samples``) keep
+            their per-row times inside *data*.
+        data: the whole parsed line, including ``t``.
+    """
+
+    t: str
+    t_us: Optional[int]
+    data: Dict[str, Any]
+
+    @property
+    def t_s(self) -> Optional[float]:
+        """``t_us`` in seconds, or None for lines without a time."""
+        return None if self.t_us is None else self.t_us / 1e6
 
 
 class StreamSession:
@@ -166,6 +215,7 @@ class StreamSession:
         self._log: "deque[str]" = deque(maxlen=_LOG_KEEP)
         self._stdout_lines: List[str] = []
         self._ended = False
+        self._consumer: Optional[str] = None  # "samples" | "events"
         self._stop_requested = False
         self._closed = False
         self._result: Optional[Recording] = None
@@ -214,14 +264,15 @@ class StreamSession:
 
     @property
     def init(self) -> Dict[str, Any]:
-        """The ``stream_init`` banner (``duration_s``, ...); empty until
-        the CLI has emitted it."""
+        """The ``stream_init`` banner (``transport`` / ``source``,
+        ``started_utc``, ...); empty until the CLI has emitted it."""
         return dict(self._init)
 
     @property
     def log(self) -> List[str]:
         """Non-stream diagnostic lines seen on stderr so far (bounded;
-        oldest lines drop first)."""
+        oldest lines drop first). Stream lines (anything JSON with a
+        ``t`` key) never land here; :meth:`events` delivers them."""
         return list(self._log)
 
     @property
@@ -238,27 +289,29 @@ class StreamSession:
 
     def __iter__(self) -> Iterator[StreamSample]:
         """Yield :class:`StreamSample` points as they arrive, until the
-        capture ends (duration reached, :meth:`stop`, or CLI exit).
+        capture ends (duration reached, :meth:`stop`, or CLI exit). Other
+        stream lines are consumed silently (their side effects, ``streams``
+        and ``init``, still apply); use :meth:`events` to see them.
         Raises ``ViewAlyzerError("timeout")`` if the session's deadline
         passes with the CLI still running (the process is then killed)."""
-        while not self._ended:
-            remaining = self._deadline - time.monotonic()
-            if remaining <= 0:
-                self._kill()
-                raise ViewAlyzerError(
-                    "timeout",
-                    f"stream session exceeded its deadline "
-                    f"({self._duration_s:.0f}s capture); the CLI was killed "
-                    f"and the recording is likely incomplete or missing",
-                )
-            try:
-                item = self._events.get(timeout=min(remaining, 0.5))
-            except queue.Empty:
-                continue
-            if item is _END or item is _EOF:
-                self._ended = True
-                return
-            yield item
+        self._claim("samples")
+        for item in self._drain():
+            if isinstance(item, StreamSample):
+                yield item
+
+    def events(self) -> Iterator[Union[StreamSample, StreamEvent]]:
+        """Yield EVERY stream line in arrival order: :class:`StreamSample`
+        for ``stream_sample`` lines and :class:`StreamEvent` for
+        everything else (``stream_init``, ``stream_meta``, ``itm_text``,
+        ``pc_samples``, ``swo_load``, ``dwt_data``, ``exc``, ...). Ends and
+        times out exactly like plain iteration.
+
+        Pick this OR ``for sample in session`` for a given session, not
+        both: they drain the same queue, and starting the second consumer
+        while the capture runs raises ``ViewAlyzerError("bad_arguments")``.
+        """
+        self._claim("events")
+        yield from self._drain()
 
     # ----- control ---------------------------------------------------------
 
@@ -384,6 +437,42 @@ class StreamSession:
 
     # ----- internals -------------------------------------------------------
 
+    def _claim(self, consumer: str) -> None:
+        """One consumer kind per session: both drain the same queue, so a
+        second kind starting mid-capture would split the feed."""
+        if self._consumer is None:
+            self._consumer = consumer
+        elif self._consumer != consumer and not self._ended:
+            other = "for sample in session" if self._consumer == "samples" else "session.events()"
+            raise ViewAlyzerError(
+                "bad_arguments",
+                f"this session is already being consumed with {other}; pick "
+                "one consumer per session (plain iteration for samples, "
+                "events() for the whole feed)",
+            )
+
+    def _drain(self) -> Iterator[Union[StreamSample, StreamEvent]]:
+        """Queue items in arrival order until the feed ends; the deadline
+        check both consumers share."""
+        while not self._ended:
+            remaining = self._deadline - time.monotonic()
+            if remaining <= 0:
+                self._kill()
+                raise ViewAlyzerError(
+                    "timeout",
+                    f"stream session exceeded its deadline "
+                    f"({self._duration_s:.0f}s capture); the CLI was killed "
+                    f"and the recording is likely incomplete or missing",
+                )
+            try:
+                item = self._events.get(timeout=min(remaining, 0.5))
+            except queue.Empty:
+                continue
+            if item is _END or item is _EOF:
+                self._ended = True
+                return
+            yield item
+
     def _kill(self) -> None:
         if self._proc.poll() is None:
             self._proc.terminate()
@@ -405,9 +494,10 @@ class StreamSession:
             pass
 
     def _read_stderr(self) -> None:
-        """Reader thread: NDJSON stream lines to the queue, everything
-        else to the diagnostic log. Always ends with an EOF sentinel so
-        iteration can never hang on a dead process."""
+        """Reader thread: every JSON line with a ``t`` key goes to the
+        queue (as a StreamSample or a StreamEvent), everything else to the
+        diagnostic log. Always ends with an EOF sentinel so iteration can
+        never hang on a dead process."""
         try:
             for raw in self._proc.stderr:  # type: ignore[union-attr]
                 line = raw.rstrip("\r\n")
@@ -422,6 +512,9 @@ class StreamSession:
                     self._log.append(line)
                     continue
                 kind = obj.get("t") if isinstance(obj, dict) else None
+                if not isinstance(kind, str):
+                    self._log.append(line)
+                    continue
                 if kind == "stream_sample":
                     sid = int(obj.get("id", -1))
                     meta = self._streams.get(sid)
@@ -435,19 +528,26 @@ class StreamSession:
                             stream_type=meta.type if meta else None,
                         )
                     )
-                elif kind == "stream_meta":
+                    continue
+                if kind == "stream_meta":
                     meta = StreamMeta(
                         id=int(obj.get("id", -1)),
                         name=str(obj.get("name", "")),
-                        type=str(obj.get("type", "graph")),
+                        type=str(obj.get("type") or obj.get("display") or "graph"),
                     )
                     self._streams[meta.id] = meta
                 elif kind == "stream_init":
                     self._init = obj
-                elif kind == "stream_end":
+                t_us = obj.get("t_us")
+                self._events.put(
+                    StreamEvent(
+                        t=kind,
+                        t_us=int(t_us) if isinstance(t_us, (int, float)) else None,
+                        data=obj,
+                    )
+                )
+                if kind == "stream_end":
                     self._events.put(_END)
-                else:
-                    self._log.append(line)
         except (OSError, ValueError):  # pipe torn down mid-read
             pass
         finally:

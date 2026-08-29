@@ -46,6 +46,12 @@ class BinaryNotFound(ViewAlyzerError):
         super().__init__("binary_missing", message)
 
 
+class ViewAlyzerWarning(UserWarning):
+    """Category of the SDK's ``warnings.warn`` calls: a request the CLI
+    accepts but does not act on (e.g. ``symbols`` on a capture). Filter or
+    escalate it with the standard ``warnings`` machinery."""
+
+
 def raise_for_envelope(payload: dict) -> dict:
     """Raise :class:`ViewAlyzerError` if *payload* is a CLI error envelope,
     otherwise return it unchanged. The envelope is detected by the ``error``

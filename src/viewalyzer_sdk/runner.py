@@ -12,8 +12,12 @@ Contract (see ``docs/CLI.md`` in the ViewAlyzer repository):
   print an *error envelope* (``{"error": <code>, ...}``), usually with a
   non-zero exit code. The envelope, not the exit code, is the failure
   signal.
-- capture modes print human-readable progress lines instead; those are
-  handled by the client, not here.
+- capture-style modes that still answer JSON (``poll``, ``snapshot``) print
+  human-readable progress lines first and the envelope as the LAST line;
+  :meth:`Runner.run_json` takes that last JSON line when the whole stdout
+  is not one object.
+- plain captures print progress lines and the two ``[headless]`` contract
+  lines instead; those are handled by the client, not here.
 """
 from __future__ import annotations
 
@@ -127,16 +131,37 @@ class Runner:
                 f"empty stdout (exit {r.exit_code}); "
                 f"stderr: {r.stderr.strip()[:400]}",
             )
-        try:
-            payload = json.loads(text)
-        except json.JSONDecodeError as e:
+        payload = parse_payload(text)
+        if payload is None:
             raise ViewAlyzerError(
                 "bad_output",
-                f"non-JSON stdout (exit {r.exit_code}): {e}. head: {text[:200]}",
-            ) from e
+                f"non-JSON stdout (exit {r.exit_code}): no JSON object line "
+                f"found. head: {text[:200]}",
+            )
         if not isinstance(payload, dict):
             raise ViewAlyzerError(
                 "bad_output",
                 f"expected a JSON object, got {type(payload).__name__}",
             )
         return raise_for_envelope(payload)
+
+
+def parse_payload(text: str) -> Any:
+    """The JSON payload in a CLI's stdout: the whole text when it is one
+    JSON value (query/list verbs), else the LAST line that parses as a JSON
+    object (``poll`` / ``snapshot`` print progress lines before their
+    envelope; an error envelope follows a ``[headless] ERROR:`` line).
+    None when no line parses."""
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        pass
+    for line in reversed(text.splitlines()):
+        line = line.strip()
+        if not line.startswith("{"):
+            continue
+        try:
+            return json.loads(line)
+        except json.JSONDecodeError:
+            continue
+    return None
