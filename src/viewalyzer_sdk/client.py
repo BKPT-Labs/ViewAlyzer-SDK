@@ -138,6 +138,24 @@ class ViewAlyzer:
         """Path of the executable this client drives."""
         return self._runner.binary
 
+    def validate_trace_domain(self, path: PathLike) -> Dict[str, Any]:
+        """Ask the native CLI to validate a Trace Domain file without hardware.
+
+        Returns the CLI report unchanged. Invalid files have ``valid=False``
+        and field diagnostics in ``files[0][\"errors\"]``; they do not raise.
+        Missing/unsupported executables and command failures raise ViewAlyzerError.
+        All JSON, schema and semantic validation belongs to the native parser.
+        """
+        return self._runner.run_json(
+            ["parse-trace-domain", str(path)], self._query_timeout_s
+        )
+
+    def trace_domain_schema(self) -> Dict[str, Any]:
+        """Return the native CLI's format version and structural JSON Schema."""
+        return self._runner.run_json(
+            ["parse-trace-domain", "--schema"], self._query_timeout_s
+        )
+
     # ----- handshake / utilities ------------------------------------------
 
     def version(self) -> Dict[str, Any]:

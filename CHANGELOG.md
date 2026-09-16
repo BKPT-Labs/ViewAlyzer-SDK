@@ -3,6 +3,16 @@
 The public API is additive only: nothing listed here renames, removes, or
 changes the behaviour of an existing class, method, parameter, or constant.
 
+## 1.4.0 (unreleased)
+
+- `ViewAlyzer.validate_trace_domain(path)` calls the native ViewAlyzer CLI and
+  returns its validation report, including specific field paths and reasons.
+- `ViewAlyzer.trace_domain_schema()` retrieves the native structural schema.
+  Both methods require a ViewAlyzer build with `parse-trace-domain`; the SDK
+  contains no independent descriptor parser or schema.
+- Links to the complete Trace Domain authoring guide, downloadable examples and
+  direct CLI workflow. Validation needs no probe or target connection.
+
 ## 1.3.0 (2026-08-29)
 
 Catch-up with the native-driver CLI (`viewalyzer-cli`, wire-protocol

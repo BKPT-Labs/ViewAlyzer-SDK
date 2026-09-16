@@ -620,3 +620,23 @@ No daemon, no shared state: parallel pytest workers are safe as long as
 they don't contend for the same debug probe. Serialize capture steps per
 probe (e.g. a session-scoped fixture or a lock); queries and direct SQLite
 reads can run fully parallel.
+
+## Trace Domain validation
+
+```python
+va = ViewAlyzer()
+report = va.validate_trace_domain("my-domain.vadomain")
+for file in report["files"]:
+    for issue in file["errors"]:
+        print(issue["path"], issue["message"])
+editor_schema = va.trace_domain_schema()["schema"]
+```
+
+`validate_trace_domain(path)` runs the installed CLI's `parse-trace-domain`
+command and returns its report unchanged, including `valid: false` and detailed
+errors for rejected files. `trace_domain_schema()` returns the native schema
+envelope. Both use `query_timeout_s` and raise `ViewAlyzerError` for executable,
+invocation or command errors. Neither opens a probe. The SDK has no separate
+schema or domain validation rules; install a ViewAlyzer build that provides this
+command. Direct CLI usage and the full format are in the
+[authoring guide](https://bkptlabs.com/docs/trace-domains/authoring.html).
