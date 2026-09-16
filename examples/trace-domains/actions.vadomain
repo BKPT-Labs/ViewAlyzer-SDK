@@ -1,0 +1,26 @@
+{
+  "id": "com.example.device-controls",
+  "name": "Device Controls",
+  "version": "1.0.0",
+  "domain_api": 1,
+  "sampled_state": {"channels": [
+    {"name": "settings.limit", "symbol": "sample_limit", "ty": "u16"},
+    {"name": "device.enabled", "symbol": "device_enabled", "ty": "u8"},
+    {"name": "device.flags", "peripheral": "PORT", "register": "STATUS"}
+  ]},
+  "actions": [
+    {"id": "set_limit", "label": "Set sample limit", "input": {"ty": "u16", "min": 0, "max": 500},
+     "target": {"kind": "ram", "source": {"symbol": "sample_limit", "steps": []}, "execution": "running_scalar"}, "completion": "readback"},
+    {"id": "set_enabled", "label": "Enable device", "input": {"ty": "u8", "choices": [{"value": "0", "label": "Off"}, {"value": "1", "label": "On"}]},
+     "target": {"kind": "mailbox", "symbol": "domain_command", "operation": 1, "timeout_ms": 3000}, "completion": "application"},
+    {"id": "clear_ready", "label": "Clear ready flag", "input": {"ty": "u32", "choices": [{"value": "1", "label": "Clear"}]},
+     "target": {"kind": "register", "peripheral": "PORT", "register": "STATUS", "field": "READY", "execution": "running_scalar"}, "completion": "transport"}
+  ],
+  "presentation": {"sections": [
+    {"title": "Controls", "view": "cards", "fields": [
+      {"channel": "settings.limit", "label": "Sample limit", "action": "set_limit"},
+      {"channel": "device.enabled", "label": "Device enabled", "action": "set_enabled"},
+      {"channel": "device.flags", "label": "Flags", "action": "clear_ready"}
+    ]}
+  ]}
+}

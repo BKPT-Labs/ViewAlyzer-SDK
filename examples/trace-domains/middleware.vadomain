@@ -1,0 +1,38 @@
+{
+  "id": "com.example.middleware-queue",
+  "name": "Middleware Queue",
+  "version": "1.0.0",
+  "domain_api": 1,
+  "sampled_state": {
+    "rate_hz": 20,
+    "channels": [
+      {"name": "queue.used", "structured": {"symbol": "active_queue", "steps": [{"op": "deref"}, {"op": "member", "name": "used"}]}},
+      {"name": "queue.capacity", "structured": {"symbol": "active_queue", "steps": [{"op": "deref"}, {"op": "member", "name": "capacity"}]}},
+      {"name": "queue.state", "structured": {"symbol": "active_queue", "steps": [{"op": "deref"}, {"op": "member", "name": "state"}]}},
+      {"name": "queue.mode", "structured": {"symbol": "queue_slots", "steps": [{"op": "index", "index": 1}, {"op": "member", "name": "mode"}]}},
+      {"name": "queue.enqueued", "symbol": "queue_enqueued", "counter": "wrapping"},
+      {"name": "queue.drained", "symbol": "queue_drained", "counter": "wrapping"}
+    ],
+    "ram_read_groups": [{"id": "queue_header", "channels": ["queue.used", "queue.capacity", "queue.state"], "max_bytes": 64, "allow_padding": true}]
+  },
+  "derived": [
+    {"type": "rate", "name": "queue.drain_rate", "source": "queue.drained", "unit": "messages/s"},
+    {"type": "map", "name": "queue.expected_rate", "source": "queue.mode", "table": {"0": 0, "1": 50, "2": 100}, "unit": "messages/s"}
+  ],
+  "channels": [
+    {"match": {"ns": "poll", "name": "queue.state"}, "display": "enum", "names": {"0": "Idle", "1": "Active", "2": "Fault"}, "graph": false}
+  ],
+  "verdicts": [
+    {"id": "drain-stalled", "name": "Consumer stopped progressing", "when": {"type": "counter_stalled", "channel": "queue.drained", "while_advances": "queue.enqueued", "window_ms": 1000, "min_advance": 10}, "evidence": ["queue.used", "queue.capacity"]},
+    {"id": "fault-state", "name": "Firmware reports a fault", "severity": "error", "when": {"type": "value_in", "channel": "queue.state", "values": [2]}, "explain": "Inspect the firmware fault reason before restarting this queue."},
+    {"id": "slow-drain", "name": "Drain rate below expectation", "when": {"type": "ratio_below", "channel": "queue.drain_rate", "reference": "queue.expected_rate", "ratio": 0.8, "sustained_ms": 2000}, "evidence": ["queue.mode"]}
+  ],
+  "presentation": {"sections": [
+    {"title": "Queue", "view": "cards", "fields": [
+      {"channel": "queue.used", "reference": "queue.capacity", "label": "Occupancy", "unit": "messages"},
+      {"channel": "queue.state", "label": "State", "group": ["Status"]},
+      {"channel": "queue.drain_rate", "label": "Drain rate", "unit": "messages/s", "group": ["Performance"]},
+      {"channel": "queue.expected_rate", "label": "Expected rate", "unit": "messages/s", "group": ["Performance"]}
+    ], "checks": ["drain-stalled", "fault-state", "slow-drain"]}
+  ]}
+}

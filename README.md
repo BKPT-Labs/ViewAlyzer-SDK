@@ -4,6 +4,23 @@ Python SDK for the **ViewAlyzer** headless CLI: automate embedded trace
 capture, analytics queries, and regression assertions from Python, pytest,
 and CI.
 
+You can also **create and validate custom Trace Domains offline**, without a
+ViewAlyzer executable or hardware. The [complete authoring guide](docs/guide/trace-domains.md)
+covers Trace Domain v1, all supported fields, diagnostic rules, typed actions,
+and [ready-to-edit examples](examples/trace-domains).
+
+```bash
+python -m pip install --upgrade viewalyzer-sdk
+viewalyzer-domain my-domain.vadomain
+python -m viewalyzer_sdk.domains --json my-domain.vadomain
+```
+
+Validation reports the exact field and reason for rejected values or references.
+Use `--schema` to export the structural JSON Schema for an editor; the SDK checker
+also validates cross-field constraints. It does not execute actions or start
+instrument programs. A valid file still needs the matching ELF/SVD and target
+when loaded in BKPT Debug or ViewAlyzer.
+
 ViewAlyzer records RTOS/baremetal trace streams from real targets (ST-LINK
 and J-Link SWO, RTT, RAM-buffer draining, UDP, serial) into self-describing
 `.vadb` recordings, which are standard SQLite files, and answers analytics

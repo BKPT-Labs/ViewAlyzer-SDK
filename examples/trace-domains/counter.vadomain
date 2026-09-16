@@ -1,0 +1,36 @@
+{
+  "id": "com.example.packet-counter",
+  "name": "Packet Counter",
+  "version": "1.0.0",
+  "domain_api": 1,
+  "publisher": "Example",
+  "sampled_state": {
+    "rate_hz": 20,
+    "channels": [
+      {"name": "packets.completed", "symbol": "packets_completed", "ty": "u32", "counter": "wrapping"},
+      {"name": "packets.errors", "symbol": "packet_errors", "ty": "u32", "counter": "wrapping"}
+    ]
+  },
+  "derived": [
+    {"type": "rate", "name": "packets.rate", "source": "packets.completed", "unit": "packets/s"}
+  ],
+  "channels": [
+    {"match": {"ns": "poll", "name_prefix": "packets."}, "display": "counter", "unit": "packets", "interpolation": "step"},
+    {"match": {"ns": "derived", "name": "packets.rate"}, "display": "graph", "unit": "packets/s", "graph": true}
+  ],
+  "verdicts": [
+    {"id": "packet-errors", "name": "Packet errors increased", "severity": "warning",
+     "when": {"type": "counter_advanced", "channel": "packets.errors"},
+     "explain": "The firmware error counter advanced. Inspect the driver's error reason and compare with traffic load.",
+     "evidence": ["packets.errors", "packets.rate"]}
+  ],
+  "presentation": {
+    "sections": [
+      {"title": "Packets", "view": "cards", "fields": [
+        {"channel": "packets.completed", "label": "Completed", "unit": "packets"},
+        {"channel": "packets.errors", "label": "Errors", "unit": "packets"},
+        {"channel": "packets.rate", "label": "Throughput", "unit": "packets/s"}
+      ], "checks": ["packet-errors"]}
+    ]
+  }
+}

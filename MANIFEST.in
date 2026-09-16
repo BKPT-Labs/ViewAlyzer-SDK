@@ -1,0 +1,3 @@
+include CHANGELOG.md
+recursive-include docs/guide *.md
+recursive-include examples/trace-domains *.vadomain

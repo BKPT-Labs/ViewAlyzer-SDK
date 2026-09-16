@@ -1,0 +1,37 @@
+{
+  "id": "com.example.mac-monitor",
+  "name": "Example Ethernet MAC",
+  "version": "1.0.0",
+  "domain_api": 1,
+  "sampled_state": {
+    "svd_device": "ExampleMCU",
+    "target_device_prefix": ["ExampleMCU"],
+    "rate_hz": 10,
+    "precondition": {"peripheral": "CLOCK", "register": "ENABLE", "mask": "0x1", "equals": "0x1", "description": "The Ethernet clock must be enabled."},
+    "channels": [
+      {"name": "eth.rx_good", "peripheral": "ETH", "register": "RX_GOOD", "counter": "wrapping", "safety": "conditional",
+       "precondition": {"peripheral": "ETH", "register": "COUNTER_CONTROL", "mask": "0x4", "equals": "0", "description": "Disable reset-on-read before observing this counter."}},
+      {"name": "eth.status", "peripheral": "ETH", "register": "STATUS", "note": "This example assumes STATUS has no read side effects."},
+      {"name": "eth.rx_pending", "ring": {"symbol": "rx_descriptors", "entries": 4, "stride_bytes": 24, "own_word_offset": 12, "own_mask": "0x80000000", "count_set": false}},
+      {"name": "eth.payload", "safety": "unsupported", "reason": "Payload contents are outside this monitor's observation contract."}
+    ]
+  },
+  "derived": [
+    {"type": "field", "name": "eth.state", "source": "eth.status", "shift": 1, "mask": "0x3", "values": {"0": "Stopped", "1": "Running", "2": "Suspended", "3": "Error"}},
+    {"type": "rate", "name": "eth.rx_rate", "source": "eth.rx_good", "unit": "frames/s"}
+  ],
+  "verdicts": [
+    {"id": "rx-backlog", "name": "Receive backlog", "when": {"type": "sustained_at_or_above", "channel": "eth.rx_pending", "value": 3, "sustained_ms": 500},
+     "explain": "At least three receive descriptors stayed pending across the observed window. Check whether the receive task is reclaiming descriptors.", "evidence": ["eth.rx_pending", "eth.rx_rate", "eth.state"]}
+  ],
+  "channels": [
+    {"match": {"ns": "poll", "name": "eth.rx_pending"}, "display": "level", "unit": "descriptors", "min": 0, "max": 4, "warn": 3, "interpolation": "step"}
+  ],
+  "presentation": {"sections": [
+    {"title": "Receive path", "view": "table", "collapsed": false, "fields": [
+      {"channel": "eth.state", "label": "DMA state"},
+      {"channel": "eth.rx_pending", "label": "Pending descriptors"},
+      {"channel": "eth.rx_rate", "label": "Receive rate", "unit": "frames/s"}
+    ], "checks": ["rx-backlog"]}
+  ]}
+}

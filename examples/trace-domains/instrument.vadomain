@@ -1,0 +1,20 @@
+{
+  "id": "com.example.bench-sensor",
+  "name": "Bench Sensor",
+  "version": "1.0.0",
+  "domain_api": 1,
+  "namespaces": ["external"],
+  "series_kinds": ["external_trace"],
+  "instrument": {
+    "cmd": "sensor-recorder --stream --rate {param.rate}",
+    "warmup_s": 2,
+    "sync_name": "sync",
+    "params": [{"key": "rate", "label": "Sample rate", "type": "number", "default": "1000", "min": 1, "max": 10000}]
+  },
+  "channels": [
+    {"match": {"ns": "external", "name": "current"}, "unit": "mA", "display": "graph", "group": "Bench", "interpolation": "linear"}
+  ],
+  "verdicts": [
+    {"id": "high-current", "name": "High current", "when": {"type": "sustained_at_or_above", "channel": "current", "value": 200, "sustained_ms": 500}, "evidence": ["current"]}
+  ]
+}
