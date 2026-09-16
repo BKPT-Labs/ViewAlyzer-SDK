@@ -125,3 +125,20 @@ class ViewAlyzerWarning(UserWarning)
 | `__version__` | `"1.3.0"` |
 
 The public API is a contract: names, parameters and behaviour are kept across releases and only added to, the same rule the CLI follows.
+
+## Trace Domain authoring
+
+`va.validate_trace_domain(path)` runs `parse-trace-domain` and returns the native
+report unchanged: `schema_version`, `domain_api`, `valid`, and per-file `files`
+with `errors`. Each error includes `path`, JSON Pointer `pointer`, and `message`;
+JSON syntax errors include line and column. Invalid descriptors return a report
+with `valid: false`; command failures raise `ViewAlyzerError`.
+
+`va.trace_domain_schema()` runs `parse-trace-domain --schema` and returns the
+native envelope. Extract `result["schema"]` for an editor association. Complete
+validation also checks semantic relationships beyond that structural schema.
+
+Both methods use the client's query timeout and require an installed ViewAlyzer
+build with this command. No hardware is opened. See the
+[authoring guide](https://bkptlabs.com/docs/trace-domains/authoring.html) for direct
+CLI usage, examples and the full format.

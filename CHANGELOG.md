@@ -5,17 +5,13 @@ changes the behaviour of an existing class, method, parameter, or constant.
 
 ## 1.4.0 (unreleased)
 
-- Offline Trace Domain validation through `viewalyzer-domain`,
-  `python -m viewalyzer_sdk.domains`, and the Python functions
-  `validate_domain`, `parse_domain`, and `load_domain`. No application binary,
-  probe, or extra dependency is needed.
-- Field-specific diagnostics include JSON Pointers, expected types and bounds,
-  unknown-field suggestions, source conflicts, invalid references, and action
-  policy errors. Batch validation supports machine-readable output and exit codes.
-- Export the structural JSON Schema with `--schema` or `domain_schema()`.
-  The validator also checks semantic relationships that require more than schema.
-- A complete Trace Domain v1 authoring guide and five downloadable examples cover
-  counters, Ethernet, middleware RAM objects, typed actions, and instruments.
+- `ViewAlyzer.validate_trace_domain(path)` calls the native ViewAlyzer CLI and
+  returns its validation report, including specific field paths and reasons.
+- `ViewAlyzer.trace_domain_schema()` retrieves the native structural schema.
+  Both methods require a ViewAlyzer build with `parse-trace-domain`; the SDK
+  contains no independent descriptor parser or schema.
+- Links to the complete Trace Domain authoring guide, downloadable examples and
+  direct CLI workflow. Validation needs no probe or target connection.
 
 ## 1.3.0 (2026-08-29)
 

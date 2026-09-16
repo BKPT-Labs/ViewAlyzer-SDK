@@ -4,22 +4,19 @@ Python SDK for the **ViewAlyzer** headless CLI: automate embedded trace
 capture, analytics queries, and regression assertions from Python, pytest,
 and CI.
 
-You can also **create and validate custom Trace Domains offline**, without a
-ViewAlyzer executable or hardware. The [complete authoring guide](docs/guide/trace-domains.md)
-covers Trace Domain v1, all supported fields, diagnostic rules, typed actions,
-and [ready-to-edit examples](examples/trace-domains).
+Validate custom Trace Domains with the installed ViewAlyzer CLI directly:
 
 ```bash
-python -m pip install --upgrade viewalyzer-sdk
-viewalyzer-domain my-domain.vadomain
-python -m viewalyzer_sdk.domains --json my-domain.vadomain
+viewalyzer-cli parse-trace-domain my-domain.vadomain --pretty
 ```
 
-Validation reports the exact field and reason for rejected values or references.
-Use `--schema` to export the structural JSON Schema for an editor; the SDK checker
-also validates cross-field constraints. It does not execute actions or start
-instrument programs. A valid file still needs the matching ELF/SVD and target
-when loaded in BKPT Debug or ViewAlyzer.
+Or use `ViewAlyzer().validate_trace_domain("my-domain.vadomain")` from Python.
+The SDK returns the native report, including exact field paths and rejection
+reasons. `ViewAlyzer().trace_domain_schema()` retrieves the native schema envelope.
+These methods require a ViewAlyzer build with `parse-trace-domain`; they need no
+probe or connected board. The SDK contains no separate validation rules.
+See the [complete authoring guide](https://bkptlabs.com/docs/trace-domains/authoring.html)
+for the full format, five examples, CLI output and editor schema export.
 
 ViewAlyzer records RTOS/baremetal trace streams from real targets (ST-LINK
 and J-Link SWO, RTT, RAM-buffer draining, UDP, serial) into self-describing

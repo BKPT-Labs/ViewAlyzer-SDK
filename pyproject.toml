@@ -38,7 +38,6 @@ dev = ["pytest>=7"]
 
 [project.scripts]
 viewalyzer-doctor = "viewalyzer_sdk.__main__:main"
-viewalyzer-domain = "viewalyzer_sdk.domains:main"
 
 [project.urls]
 Homepage = "https://viewalyzer.net"

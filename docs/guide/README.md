@@ -11,11 +11,11 @@ Pure Python, no dependencies beyond the standard library. The package is `viewal
 ## Finding the binary
 
 For custom Trace Domain authoring, use the [complete authoring guide](https://bkptlabs.com/docs/trace-domains/authoring.html).
-`python -m viewalyzer_sdk.domains my-domain.vadomain` validates the format,
-references and policies offline, and reports specific field errors. This command
-does not need an application executable or connected target.
-
-The capture and query APIs below do need the application executable.
+Use `viewalyzer-cli parse-trace-domain my-domain.vadomain --pretty` directly, or
+`ViewAlyzer().validate_trace_domain("my-domain.vadomain")` from Python. Both return
+specific field errors from the same native parser. No probe or target is required;
+a ViewAlyzer build with this command is required. The SDK has no independent
+schema or validation rules.
 
 The SDK does not ship the CLI; it finds the one installed with ViewAlyzer or BKPT Debug. In order: the `VIEWALYZER` environment variable (a path to `viewalyzer-cli` or the `viewalyzer` app binary), then `viewalyzer-cli` / `ViewAlyzer` / `viewalyzer` on `PATH`, then the app's install locations. `ViewAlyzer(binary=...)` takes a path or an argv prefix explicitly.
 
