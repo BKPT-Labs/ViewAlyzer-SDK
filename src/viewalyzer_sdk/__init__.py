@@ -25,6 +25,7 @@ from .client import (
 from .discovery import ENV_VAR, find_viewalyzer, find_viewalyzer_with_source
 from .errors import BinaryNotFound, ViewAlyzerError, ViewAlyzerWarning
 from .recording import Recording
+from .runtime_map import RuntimeMap
 from .streaming import StreamEvent, StreamMeta, StreamSample, StreamSession
 
 __version__ = "1.3.0"
@@ -32,6 +33,7 @@ __version__ = "1.3.0"
 __all__ = [
     "ViewAlyzer",
     "Recording",
+    "RuntimeMap",
     "StreamSession",
     "StreamSample",
     "StreamMeta",

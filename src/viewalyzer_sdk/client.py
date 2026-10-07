@@ -42,6 +42,8 @@ from .runner import (
 )
 
 if TYPE_CHECKING:  # pragma: no cover - import cycle guard
+    from typing import ContextManager
+    from .runtime_map import RuntimeMap
     from .streaming import StreamSession
 
 #: The agent wire-protocol version this SDK was written against (2 since
@@ -651,6 +653,34 @@ class ViewAlyzer:
         )
 
     # ----- queries --------------------------------------------------------
+
+    def runtime_map(
+        self,
+        recording: Union[Recording, str, Path],
+        *,
+        cache_dir: Optional[PathLike] = None,
+        timeout_s: Optional[float] = None,
+    ) -> "RuntimeMap":
+        """Build/reuse a disposable SQLite map from a saved .vadb.
+
+        Requires a CLI with the ``map`` command. The recording is never
+        modified. Omit *cache_dir* for the CLI's managed OS-temp cache.
+        """
+        from .runtime_map import RuntimeMap
+
+        return RuntimeMap(self, recording, cache_dir=cache_dir, timeout_s=timeout_s)
+
+    def temporary_map(
+        self,
+        recording: Union[Recording, str, Path],
+        *,
+        timeout_s: Optional[float] = None,
+    ) -> "ContextManager[RuntimeMap]":
+        """``with va.temporary_map(recording) as graph: ...``; remove this
+        context's private cache on exit, including when the body raises."""
+        from .runtime_map import temporary_map
+
+        return temporary_map(self, recording, timeout_s=timeout_s)
 
     def query(
         self,

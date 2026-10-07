@@ -7,6 +7,7 @@ Python SDK for the ViewAlyzer headless CLI (`viewalyzer-cli`, wire-protocol
 from viewalyzer_sdk import (
     ViewAlyzer,                 # the client
     Recording,                  # a handle on one .vadb recording
+    RuntimeMap,                 # disposable SQLite runtime graph derived from a .vadb
     StreamSession,              # a live capture: iterate samples or events(), then result()
     StreamSample,               # one live data point
     StreamMeta,                 # one announced stream (id, name, type)
@@ -36,6 +37,30 @@ The public API is a frozen contract: releases add, never rename, remove
 or change existing signatures or behaviour. See `CHANGELOG.md`.
 
 ---
+
+## Runtime maps
+
+`va.runtime_map(recording, cache_dir=None, timeout_s=None)` and
+`rec.runtime_map(...)` return a reusable `RuntimeMap` from the native Rust map
+engine. `with va.temporary_map(recording, timeout_s=None) as graph` instead
+cleans up its private database directory on exit, including on exceptions.
+Requires a CLI with the `map` command. The `.vadb` is unchanged; no companion
+`.vamap` is required.
+
+The handle provides `summary()`, `nodes()`, `edges()`, `activity()`, `states()`,
+`sql(statement, limit=200)`, `path`, `info`, and a read-only SQLite context
+manager (`with graph.connect() as db`). Each CLI-backed query validates/reuses
+the cache. Direct connections read a fixed cache snapshot and close on exit.
+Close them before leaving `temporary_map`.
+
+Lists return envelopes with `data`, `row_count`, `truncated`, `next_offset`;
+default 200 rows, maximum 10,000. Node queries accept `node`, `name`, `kind`;
+edges/activity accept `node`, `tags`, `t_start_us`, `t_end_us`; states accept
+node/time filters. All lists accept `limit` and `offset`. Time bounds are
+inclusive microseconds, while database/result timestamps are nanoseconds.
+Observed relations retain event IDs and attribution; they do not imply
+successful delivery or causality. See the [complete map API](guide/api.md#runtimemap)
+and [agent/CI recipes](../README.md#runtime-maps-for-agents-and-ci).
 
 ## Locating the executable
 

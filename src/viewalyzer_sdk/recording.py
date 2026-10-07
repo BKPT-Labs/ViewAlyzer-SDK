@@ -30,6 +30,7 @@ from .errors import ViewAlyzerError
 
 if TYPE_CHECKING:  # pragma: no cover - import cycle guard
     from .client import ViewAlyzer
+    from .runtime_map import RuntimeMap
 
 Number = Union[int, float, str, None]
 PathLike = Union[str, Path]
@@ -99,6 +100,11 @@ class Recording:
         return str(self.path)
 
     # ----- tiered CLI queries ---------------------------------------------
+
+    def runtime_map(self, *, cache_dir: Optional[PathLike] = None,
+                    timeout_s: Optional[float] = None) -> "RuntimeMap":
+        """Build/reuse the CLI's derived map database for this recording."""
+        return self._client.runtime_map(self, cache_dir=cache_dir, timeout_s=timeout_s)
 
     def timeline(self, tier: str = "summary", **window: Any) -> Dict[str, Any]:
         """Scheduler / CPU analytics. Start with ``tier="summary"``;

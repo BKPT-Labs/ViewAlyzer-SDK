@@ -237,6 +237,94 @@ rec.meta()         # provenance: va_cpu_hz, va_os, ...
 con = rec.connect()  # read-only sqlite3.Connection for anything else
 ```
 
+## Runtime maps for agents and CI
+
+Derive the architecture map from a saved `.vadb` without opening the GUI or
+connecting a probe. The native Rust engine builds the same observed task/object
+graph used by the GUI and caches it as SQLite. The `.vadb` remains the file to
+keep and share; no `.vamap` export or companion file is required. Requires a
+ViewAlyzer CLI build with the `map` command (`viewalyzer-cli map schema` checks
+support); older binaries report an unsupported command.
+
+```python
+from viewalyzer_sdk import ViewAlyzer
+
+va = ViewAlyzer()
+with va.temporary_map("ci-run.vadb", timeout_s=120) as graph:
+    print(graph.summary()["summary"])
+    mutexes = graph.nodes(kind="mutex")
+    contention = graph.edges(tags="contended")
+    print(contention["data"])
+
+    # Query the indexed database directly, without CLI row limits.
+    with graph.connect() as db:
+        count = db.execute("""
+            SELECT COUNT(*) FROM map_activity a
+            JOIN map_edges e ON e.id = a.edge_id
+            WHERE e.tag IN ('contended', 'failed')
+        """).fetchone()[0]
+    assert count == 0, f"{count} contention/failure observations"
+# The private cache directory is removed, including on exceptions.
+```
+
+`va.runtime_map(path, cache_dir=...)` and `recording.runtime_map()` return a
+`RuntimeMap` using a reusable cache instead. Omitting `cache_dir` uses the OS
+temporary directory's `viewalyzer-runtime-map` subdirectory, retained across
+CLI invocations. Changed recording content or engine/cache versions produce a
+fresh cache; deleted caches regenerate. Each CLI-backed method revalidates the
+source. The first build loads and projects the full recording in memory; its
+cost scales with capture size. Use finalized recordings, with no active SQLite
+WAL. Treat cache files as read-only and disposable.
+
+| Method | Selection / result |
+|---|---|
+| `summary()` | Whole-recording counts, integrity/omission counters and provenance. |
+| `nodes(node=..., name=..., kind=...)` | Exact node ID/kind or name substring. |
+| `edges(node=..., tags=..., t_start_us=..., t_end_us=...)` | Connections incident to a node, with counts within the selected interval. |
+| `activity(node=..., tags=..., t_start_us=..., t_end_us=...)` | Individual observations with event IDs, timestamps, fields and attribution. |
+| `states(node=..., t_start_us=..., t_end_us=...)` | Observed task-state history. |
+| `sql(statement, limit=200)` | One read-only `SELECT`/`WITH`; `columns` and `rows`. |
+| `connect()` | Context manager yielding a read-only `sqlite3.Connection`; closes on exit. |
+| `path`, `info` | Current cache path and latest CLI response including `cache` and `summary`. |
+
+All query methods return the full JSON envelope. Node IDs come from `nodes()`
+and are local to a recording. `tags` accepts a comma-separated string or a list;
+values are `failed`, `contended`, `timeout`, `waiting`, `armed`, `expired`,
+`stopped`, `begin`, `end`, `sample`, `other`. Multiple tags combine with OR;
+node/time/tag predicates combine with AND. The envelope's `summary` always
+describes the entire recording. Window bounds are inclusive **microseconds**;
+returned timestamps and SQL columns are device **nanoseconds**.
+
+Lists accept `limit` (default 200, maximum 10,000) and `offset`. Follow the
+returned `next_offset` to avoid silently missing data:
+
+```python
+with va.temporary_map("run.vadb") as graph:
+    offset = 0
+    while True:
+        page = graph.activity(tags=["contended", "failed"], limit=1000, offset=offset)
+        for observation in page["data"]:
+            print(observation["event_id"], observation["time_ns"], observation["fields"])
+        if not page["truncated"]:
+            break
+        offset = page["next_offset"]
+```
+
+The SQLite tables are `map_meta`, `map_nodes`, `map_edges`, `map_activity`, and
+`map_node_states`. `map schema` returns their DDL. CLI queries cap serialized
+rows at 4 MiB and SQLite execution at five seconds; `truncated` indicates a row
+or byte limit. Narrow the query, page, or use direct SQL via `connect()` for
+larger analysis. A direct connection reads a fixed cache snapshot and has no
+CLI query limits. Close it before exiting a `temporary_map` context (especially
+on Windows). Handles from that context are closed when it ends.
+
+These are observed runtime relations, with explicit/scheduler/unknown
+attribution. They are not proof of message delivery, mutex ownership, causality
+or static dependencies. Check integrity and omission counters before treating
+absence of observations as absence of a problem. Zephyr, FreeRTOS and
+bare-metal use the same canonical-event projector. The full command, table and
+error contract is in ViewAlyzer-RS's `docs/CLI.md`.
+
 ## Hardware-trace planning
 
 `va.hwtrace_dry_run()` prints the ordered register image a capture would

@@ -33,6 +33,8 @@ class ViewAlyzer(binary=None, *, query_timeout_s=30.0)
 | `record_polls(elf, symbols, *, duration_s, poll_hz=100, config=None, target_device=None, extra_flags=(), timeout_s=None)` | `poll` | a `Recording` of `poll_trace` samples. `symbols` are `name[:type]` entries; `config` must name a debug-probe transport (the CLI refuses a bare `target_device`) |
 | `snapshot(config, *, output, elf=None, extra_flags=(), timeout_s=120.0)` | `snapshot` | a `Recording` of the firmware's RAM ring, no reset |
 | `open(recording)` | none | a `Recording` handle from a path or a 12-hex id |
+| `runtime_map(recording, *, cache_dir=None, timeout_s=None)` | `map build` | a reusable `RuntimeMap` derived from a saved `.vadb`; `recording` can be a handle, path or recording ID |
+| `temporary_map(recording, *, timeout_s=None)` | `map build` | context manager yielding a `RuntimeMap`, deleting its private cache directory on exit |
 | `recordings()`, `list_recordings()` | `recordings` | the index as `Recording` objects, or the raw envelope |
 | `delete_recording(recording)`, `delete_all_recordings()` | `recordings --delete-...` | |
 | `query(verb, recording, *, tier=None, budget=None, t_start_us=None, t_end_us=None, bucket_us=None, max_slices=None, sql=None, elf=None, kinds=None, channels=None, threshold_us=None, extra_flags=(), timeout_s=None)` | `query <verb>` | the envelope; prefer the named methods on `Recording` |
@@ -95,6 +97,41 @@ samples = rec.user_traces(tier="raw", t_start_us=1_000_000, t_end_us=1_010_000, 
 with rec.connect() as db:
     kinds = db.execute("select kind, count(*) from va_events group by kind").fetchall()
 ```
+
+## RuntimeMap
+
+`va.runtime_map(...)`, `rec.runtime_map(cache_dir=None, timeout_s=None)`, or
+`with va.temporary_map(...) as graph` builds the GUI's observed runtime graph
+without a GUI or hardware. Requires a CLI with the `map` command. The `.vadb`
+is unchanged and is the only file to archive; no `.vamap` is needed.
+
+| Member | Contract |
+|---|---|
+| `summary()` | Full envelope: counts, integrity/omission counters, source hash and cache identity. |
+| `nodes(*, node=None, name=None, kind=None, limit=None, offset=None)` | Exact node ID/kind, substring name. Node operation totals cover the recording. |
+| `edges(*, node=None, tags=None, t_start_us=None, t_end_us=None, limit=None, offset=None)` | Incident connections, with filtered counts and time bounds. |
+| `activity(...)` | Same filters as `edges`; individual event evidence and decoded fields. |
+| `states(*, node=None, t_start_us=None, t_end_us=None, limit=None, offset=None)` | Observed state transitions. |
+| `sql(statement, *, limit=200)` | One read-only `SELECT`/`WITH`; response contains `columns`, `rows`, `row_count`, `truncated`. |
+| `connect()` | Context manager yielding a read-only SQLite connection; validates/rebuilds cache first and closes on exit. |
+| `path`, `info` | Current cache path and latest complete CLI response. |
+
+Lists return `data`, `row_count`, `truncated`, `next_offset`, `limit`, `offset`.
+Default 200 rows, maximum 10,000; follow `next_offset` while truncated. `tags`
+accepts a comma-separated string or a sequence (OR); other predicates combine
+with AND. Tags: `failed`, `contended`, `timeout`, `waiting`, `armed`, `expired`,
+`stopped`, `begin`, `end`, `sample`, `other`. Window arguments are inclusive
+microseconds; database/JSON timestamps are device nanoseconds. The envelope's
+summary remains capture-wide. Methods reject unsupported filters.
+
+Tables: `map_meta`, `map_nodes`, `map_edges`, `map_activity`, `map_node_states`;
+`viewalyzer-cli map schema` gives DDL. CLI queries cap serialized rows at 4 MiB
+and SQLite execution at five seconds; direct connections have no CLI limits.
+Close connections before the temporary-map context exits; its handle then
+raises `map_closed`. Reusable caches default to the OS temporary directory and
+are rebuilt if evicted or source/engine/cache version changes. Direct SQL reads
+a fixed snapshot. See [runtime map recipes](../../README.md#runtime-maps-for-agents-and-ci)
+for lifecycle, pagination and evidence semantics.
 
 ## Streaming types
 
