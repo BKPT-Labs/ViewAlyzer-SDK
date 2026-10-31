@@ -156,7 +156,7 @@ class ViewAlyzerWarning(UserWarning)
 | `find_viewalyzer(env=None)` | the binary path the SDK would use, or `None` |
 | `find_viewalyzer_with_source(env=None)` | `(path, "env" \| "path" \| "install" \| "not found")` |
 | `ENV_VAR` | `"VIEWALYZER"` |
-| `SCHEMA_VERSION`, `SUPPORTED_SCHEMA_VERSIONS` | `2`, `(1, 2)`; `viewalyzer-doctor` warns on a binary outside the tuple |
+| `SCHEMA_VERSION`, `SUPPORTED_SCHEMA_VERSIONS` | `3`, `(3,)`; `viewalyzer-doctor` warns on a binary outside the tuple |
 | `QUERY_VERBS`, `TIERED_VERBS`, `TWO_TIER_VERBS`, `UNTIERED_VERBS` | the verbs `query()` accepts |
 | `HWTRACE_ARCHS` | `("v6m", "v7m", "v8m")` for `hwtrace_dry_run` |
 | `__version__` | `"1.3.0"` |

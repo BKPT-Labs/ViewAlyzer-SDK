@@ -32,7 +32,7 @@ def test_capture_is_a_measurement(rec):
 def test_systick_budget(rec):
     lanes = {t["name"]: t for t in rec.timeline()["tasks"]}
     assert lanes["ISR:SysTick"]["p99_slice_us"] < 5.0
-    assert lanes["ISR:SysTick"]["max_jitter_us"] < 10.0
+    assert lanes["ISR:SysTick"]["max_switch_in_interval_deviation_us"] < 10.0
 
 def test_no_priority_inversion(rec):
     assert rec.inversions()["inversions"] == []

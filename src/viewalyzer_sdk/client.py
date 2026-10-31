@@ -46,13 +46,12 @@ if TYPE_CHECKING:  # pragma: no cover - import cycle guard
     from .runtime_map import RuntimeMap
     from .streaming import StreamSession
 
-#: The agent wire-protocol version this SDK was written against (2 since
-#: the hardware-trace queries and the extra stream events; additive over 1).
+#: CLI schema 3 preserves native hardware clocks and qualified metric subsets.
 #: Check the CLI's own value once via :meth:`ViewAlyzer.version`.
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 #: Every wire-protocol version whose payload shapes this SDK understands.
 #: ``viewalyzer-doctor`` warns only when the binary reports something else.
-SUPPORTED_SCHEMA_VERSIONS = (1, 2)
+SUPPORTED_SCHEMA_VERSIONS = (3,)
 
 #: Query verbs with three tiers (``summary`` | ``bucketed`` | ``raw``).
 TIERED_VERBS = ("timeline", "events", "user-traces")
@@ -84,6 +83,8 @@ UNTIERED_VERBS = (
     "dwt-exc",
     "dwt-counters",
     "swo-load",
+    "hardware",
+    "native-signals",
 )
 QUERY_VERBS = (*TIERED_VERBS, *TWO_TIER_VERBS, *UNTIERED_VERBS)
 
@@ -143,7 +144,7 @@ class ViewAlyzer:
     # ----- handshake / utilities ------------------------------------------
 
     def version(self) -> Dict[str, Any]:
-        """``{"schema_version": 2, "app": "ViewAlyzer", "version": "1.2.0",
+        """``{"schema_version": 3, "app": "ViewAlyzer", "version": "1.2.0",
         "core": "rust", "edition", "transports": [...], "license": {...}}``.
         Call once at startup; if ``schema_version`` is not in
         :data:`SUPPORTED_SCHEMA_VERSIONS`, response shapes may not match

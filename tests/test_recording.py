@@ -44,6 +44,19 @@ def test_is_clean_call_form_still_works_but_warns(va, vadb):
         assert rec.is_clean() is True  # pre-1.0.1 method form
 
 
+@pytest.mark.parametrize("key,value", [
+    ("transport_dropped_records", 537),
+    ("transport_drop_counter_discontinuities", 1),
+])
+def test_transport_reports_prevent_clean_verdict(va, vadb, key, value):
+    with sqlite3.connect(vadb) as con:
+        con.execute("INSERT INTO va_summary VALUES (?, ?)", (key, str(value)))
+    rec = va.open(vadb)
+    assert rec.lost_events == 0
+    assert not rec.is_clean
+    assert rec.transport_dropped_records == (value if key == "transport_dropped_records" else None)
+
+
 def test_recording_path_as_first_arg_is_rejected_helpfully(vadb):
     with pytest.raises(ViewAlyzerError) as e:
         Recording(str(vadb))
@@ -134,6 +147,8 @@ def test_profile(va, tmp_path):
     p = rec.profile()
     assert p["query"] == "profile" and p["elf"] is None
     assert p["data"]["source"] == "dwt-swo"
+    assert p["data"]["span_s"] is None
+    assert p["data"]["sample_rate_hz"] is None
     assert "symbol" not in p["data"]["hotspots"][0]
     elf = tmp_path / "fw.elf"
     elf.write_bytes(b"\x7fELF")
@@ -151,6 +166,7 @@ def test_itm_console_all_ports(va):
     assert c["query"] == "itm-console" and c["port_flag"] is None
     assert [p["port"] for p in c["data"]["ports"]] == [0, 1]
     assert c["data"]["ports"][1]["lines"][1]["partial"] is True
+    assert c["data"]["ports"][0]["lines"][0]["t_us"] is None
 
 
 def test_itm_console_port_filter_is_sent_and_applied(va):
@@ -168,7 +184,8 @@ def test_dwt_queries(va, tmp_path):
     d = rec.dwt_data()
     assert d["query"] == "dwt-data" and d["elf"] is None
     assert d["data"]["watches"][0]["name"] == "g_temp"
-    assert d["data"]["watches"][0]["first"][1]["pc"] == 134218240
+    assert d["data"]["watches"][0]["first"][1]["pc"] == "0x08000200"
+    assert d["data"]["watches"][0]["first"][1]["t_us"] is None
     elf = tmp_path / "fw.elf"
     elf.write_bytes(b"\x7fELF")
     assert rec.dwt_data(elf=elf)["elf"] == str(elf)
@@ -177,11 +194,17 @@ def test_dwt_queries(va, tmp_path):
     assert x["query"] == "dwt-exc"
     assert x["data"]["exceptions"][0]["name"] == "SysTick"
     assert x["data"]["events"][0]["func"] == 1
+    assert x["data"]["events"][0]["depth"] is None
+    assert x["data"]["events"][0]["observed_depth"] == 1
+    assert x["data"]["exceptions"][0]["max_depth"] is None
 
     c = rec.dwt_counters()
     assert c["query"] == "dwt-counters"
     assert c["data"]["counters"]["cpi"]["wraps"] == 10
-    assert c["data"]["cpu_load_pct"] == 70.0
+    assert c["data"]["cpu_load_pct"] is None
+    assert c["data"]["counters"]["cpi"]["cycles"] is None
+    assert c["data"]["counters"]["cpi"]["rate_per_s"] is None
+    assert c["data"]["reliable"] is False
 
 
 def test_swo_load(va):

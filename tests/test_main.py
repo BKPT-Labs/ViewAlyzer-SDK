@@ -10,7 +10,7 @@ def test_supported_schemas_do_not_warn():
 
 
 def test_unknown_schema_warns():
-    for schema in (0, 3, None, "2"):
+    for schema in (0, 1, 2, 4, None, "3"):
         text = schema_warning(schema)
         assert text and text.startswith("warning:")
         assert str(schema) in text and str(SCHEMA_VERSION) in text

@@ -13,9 +13,11 @@ Two ways to read a recording, both exposed here:
   so overview reads need no subprocess at all. Connections are opened
   read-only.
 
-All query-layer times are microseconds since recording start. Raw
-``va_events.t_cycles`` values are CPU cycles (convert with
-``meta.va_cpu_hz``), except ``poll_trace`` rows which are microseconds.
+Recorder query times use microseconds; raw ``va_events.t_cycles`` use the
+recorder's declared clock (``meta.va_cpu_hz``). Native probe observations
+live in ``va_hw_observations`` with their own clocks. Their recorder time
+is unavailable unless a verified correlation exists; ``native_signals``
+returns exact integer nanosecond bounds for host memory-read intervals.
 """
 from __future__ import annotations
 
@@ -180,14 +182,22 @@ class Recording:
         ``sample_rate_hz``, ``hotspots[]``, ``source`` (``dwt-swo`` |
         ``pcsr-poll``) and ``interval_cycles``. Pass *elf* to symbolicate
         the hotspots (function names, and file:line when the image has
-        DWARF). *budget* caps the hotspot count (16 / 32 / 64)."""
+        DWARF). *budget* caps the hotspot count (16 / 32 / 64).
+
+        Schema 3 reports eligible and excluded observations with disjoint
+        exclusion buckets. Hotspot percentages use qualified address samples;
+        sleep share uses qualified periodic DWT packets only. PCSR unavailable
+        reads are never sleep. Unknown elapsed time/rates remain None. Check
+        coverage and pc_address_validation before interpreting the distribution.
+        """
         return self._client.query("profile", self, elf=elf, budget=budget)
 
     def itm_console(self, *, port: Optional[int] = None) -> Dict[str, Any]:
         """ITM stimulus-port console text (a firmware ``printf`` routed to
         the ITM): ``data["ports"]`` is a list of ``{"port", "lines":
         [{"t_us", "text", "partial"?}], "bytes", "lines_truncated"?}``,
-        lines split on newline with the time of their first byte.
+        lines split on newline. Schema 3 keeps native_time and recording_time;
+        t_us is None without a verified point on the recorder clock.
 
         *port* keeps only that stimulus port. It is sent to the CLI as
         ``--port N`` (newer builds filter server-side) and the returned
@@ -211,22 +221,27 @@ class Recording:
         """DWT data-trace watches (``--dwt-watch`` comparators):
         ``data["watches"]`` is a list of ``{"cmp", "name", "address",
         "function", "count", "first": [{"t_us", "value", "rw", "pc"?}]}``
-        with up to 256 samples per comparator. Pass *elf* to symbolicate
-        the access PCs of ``:pc`` watches."""
+        with up to 256 samples per comparator. Native clocks are retained and
+        t_us is None unless recorder alignment is verified. Pass *elf* to
+        symbolicate the access PCs of ``:pc`` watches."""
         return self._client.query("dwt-data", self, elf=elf)
 
     def dwt_exc(self) -> Dict[str, Any]:
         """DWT exception trace (``--dwt-exc``): ``data["exceptions"]`` per
         vector ``{"num", "name", "enter", "exit", "return", "max_depth"}``
-        plus ``data["events"]`` ``{"t_us", "num", "func"}`` (up to 4096)."""
+        plus ``data["events"]`` ``{"t_us", "num", "func"}`` (up to 4096).
+        Exact depth is unavailable; observed_max_depth describes reconstruction
+        from received packets. Each event keeps its native timing and coverage.
+        """
         return self._client.query("dwt-exc", self)
 
     def dwt_counters(self) -> Dict[str, Any]:
         """DWT event counters (``--dwt-counters``): ``data["counters"]``
         keyed ``cpi``, ``exc``, ``sleep``, ``lsu``, ``fold``, ``cyc`` with
-        ``{"wraps", "cycles", "rate_per_s"}`` each, ``span_s``, and
-        ``cpu_load_pct`` derived from the sleep counter (``None`` without
-        it)."""
+        ``{"wraps", "cycles", "rate_per_s"}`` each. Only received wrap
+        notifications are counted. Without counter endpoints and a verified
+        elapsed clock, cycles, rate_per_s, span_s and cpu_load_pct are None.
+        """
         return self._client.query("dwt-counters", self)
 
     def swo_load(self) -> Dict[str, Any]:
@@ -237,6 +252,25 @@ class Recording:
         return self._client.query("swo-load", self)
 
     # ----- untiered CLI queries -------------------------------------------
+
+    def native_signals(self, *, channel_id: Optional[int] = None,
+                       offset: int = 0, budget: Optional[str] = None) -> Dict[str, Any]:
+        """Probe-value summaries, or exact read-interval samples for a channel.
+
+        Times are unsigned host nanoseconds and are independent of recorder
+        time. Statistics weight each finite reading equally. Missing values
+        remain missing; they are not zeros or held values. Follow next_offset
+        until it is None to page through the selected data.
+        """
+        flags = ["--offset", str(int(offset))]
+        if channel_id is not None:
+            flags += ["--channel-id", str(int(channel_id))]
+        return self._client.query("native-signals", self, budget=budget, extra_flags=flags)
+
+    def hardware(self, *, offset: int = 0, budget: Optional[str] = None) -> Dict[str, Any]:
+        """Raw native observations with coverage and bounded pagination."""
+        return self._client.query("hardware", self, budget=budget,
+                                  extra_flags=["--offset", str(int(offset))])
 
     def inversions(self) -> Dict[str, Any]:
         """Priority-inversion report (no tiers). The priority comparison is
@@ -438,11 +472,10 @@ class Recording:
 
     @property
     def lost_events(self) -> int:
-        """Exact number of packets the recorder emitted that never arrived
-        (dropped at the source by a full buffer, or lost in transport),
-        from the v3 sequence counter. 0 when the stream carries no
-        sequence info; check :attr:`has_sequence_info` to distinguish
-        verified-zero from unknowable."""
+        """Sequence-detected missing packets in the retained stream.
+        Whole counter wraps and loss outside the decoded interval can be
+        invisible. See :attr:`transport_dropped_records` for independent
+        transport evidence; these counts must not be added together."""
         return int(self.summary().get("lost_events") or 0)
 
     @property
@@ -451,18 +484,26 @@ class Recording:
         return int(self.summary().get("seq_gaps") or 0)
 
     @property
+    def transport_dropped_records(self) -> Optional[int]:
+        """Reported counter increases after the first observed baseline.
+        None means unavailable. May overlap sequence loss or precede the
+        decoded interval; counter decreases make the count a lower bound."""
+        value = self.summary().get("transport_dropped_records")
+        return int(value) if value is not None else None
+
+    @property
     def is_clean(self) -> bool:
-        """True when the capture had no corrupt bytes AND no sequence-counter
-        loss. This is the assertion to use for "every emitted event made it
-        into the recording": corrupt bytes measure damage to what arrived,
-        lost events measure what never arrived at all.
+        """True when no corruption, loss, or counter discontinuity was reported.
+        This does not prove every emitted event arrived: absent counters and
+        loss outside the decoded interval cannot establish completeness.
 
         A property since 1.0.1 (was a method); the call form still works
         through 1.x with a DeprecationWarning."""
-        return _CallableBool(
-            int(self.summary().get("corrupt_bytes") or 0) == 0
-            and self.lost_events == 0
-        )
+        summary = self.summary()
+        return _CallableBool(all(int(summary.get(key) or 0) == 0 for key in (
+            "corrupt_bytes", "lost_events", "transport_dropped_records",
+            "transport_drop_counter_discontinuities",
+        )))
 
     # ----- helpers --------------------------------------------------------
 

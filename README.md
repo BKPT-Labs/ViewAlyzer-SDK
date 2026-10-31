@@ -25,7 +25,7 @@ assert rec.task_stats()[0]["cpu_percent"] < 80   # CPU headroom held
 Zero dependencies, stdlib only. Requires a ViewAlyzer installation
 (the app is the engine; this package is the steering wheel). Get the app
 at [viewalyzer.net](https://viewalyzer.net). This release targets CLI
-wire-protocol `schema_version` 2 and still understands 1
+wire-protocol `schema_version` 3
 (`SUPPORTED_SCHEMA_VERSIONS`).
 
 ## Install
@@ -366,7 +366,7 @@ def test_no_priority_inversions(rec):
 
 def test_control_task_period_jitter(rec):
     stats = {t["name"]: t for t in rec.task_stats()}
-    assert abs(stats["control_tid"]["max_jitter_us"]) < 200
+    assert abs(stats["control_tid"]["max_switch_in_interval_deviation_us"]) < 200
 ```
 
 ## Error handling

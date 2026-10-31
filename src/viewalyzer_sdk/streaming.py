@@ -159,9 +159,11 @@ class StreamEvent:
 
     Attributes:
         t: the line's kind (its ``t`` key).
-        t_us: the line's ``t_us`` when it carries one (``itm_text``),
-            else None; batch lines (``dwt_data``, ``pc_samples``) keep
-            their per-row times inside *data*.
+        t_us: verified recorder time when present, otherwise None.
+            Native hardware observations preserve their independent clock in
+            data. pc_samples has no per-PC timestamp; its total includes
+            excluded observations, while eligible and eligible_dwt_packets
+            give the qualified denominators.
         data: the whole parsed line, including ``t``.
     """
 

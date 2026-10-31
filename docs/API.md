@@ -1,7 +1,7 @@
 # viewalyzer-sdk: API reference
 
 Python SDK for the ViewAlyzer headless CLI (`viewalyzer-cli`, wire-protocol
-`schema_version` 2). Everything lives in one import:
+`schema_version` 3). Everything lives in one import:
 
 ```python
 from viewalyzer_sdk import (
@@ -16,8 +16,8 @@ from viewalyzer_sdk import (
     ViewAlyzerWarning,          # the SDK's warnings.warn category
     BinaryNotFound,             # subclass: executable couldn't be located
     find_viewalyzer,            # discovery as a standalone function
-    SCHEMA_VERSION,             # the CLI wire-protocol version this SDK targets (2)
-    SUPPORTED_SCHEMA_VERSIONS,  # every version it understands: (1, 2)
+    SCHEMA_VERSION,             # the CLI wire-protocol version this SDK targets (3)
+    SUPPORTED_SCHEMA_VERSIONS,  # every version it understands: (3,)
     QUERY_VERBS,                # the query verbs query() accepts
     HWTRACE_ARCHS,              # cores hwtrace_dry_run() plans for
 )
@@ -101,7 +101,7 @@ ViewAlyzer(binary=None, *, query_timeout_s=30.0)
 
 | Method | Returns |
 |---|---|
-| `version()` | `{"schema_version": 2, "app": "ViewAlyzer", "version": "1.2.0", "core": "rust", "edition", "git_sha", "built", "transports": [...], "license": {...}}`. Call once at startup and check `schema_version in SUPPORTED_SCHEMA_VERSIONS`. |
+| `version()` | `{"schema_version": 3, "app": "ViewAlyzer", "version": "1.2.0", "core": "rust", "edition", "git_sha", "built", "transports": [...], "license": {...}}`. Call once at startup and check `schema_version in SUPPORTED_SCHEMA_VERSIONS`. |
 | `doctor(*, jlink_path=None, stlink_path=None, cube_programmer_path=None, arm_gdb_path=None)` | Setup health check: `{"checks": [{"id", "name", "required", "status": "ok"\|"none"\|"missing"\|"free", "detail"?, "path"?, "hint"?}], "app_version", "edition", "license"}`. This CLI's check ids: `probes_stlink`, `probes_jlink`, `probes_cmsis_dap` (`none` = none connected, `detail` lists serials), `serial_ports`, `recordings_dir` (`path`), `probe_rs_targets`, `license` (`free` = free-mode caps apply). A missing optional item is a report entry, not an error. The tool-path keyword arguments are kept for older builds that spawned vendor tools; this CLI accepts and ignores them. |
 | `list_probes(*, jlink_path=None, stlink_path=None, cube_programmer_path=None)` | Connected debug probes: `{"probes": [{"type": "stlink"\|"jlink"\|"cmsis-dap", "serial", "description", "vid", "pid"}], "warnings": []}`. With several probes of a kind attached, pin one via the `stlink-serial` / `jlink-serial` config keys or the capture refuses. Tool-path arguments: same note as `doctor()`. |
 | `list_ports()` | Serial ports for the `serial` transport: `{"ports": ["COM7", ...]}` (names, to use as the `serial-port` config key). |
@@ -436,7 +436,7 @@ produce them. Results sit under `["data"]`.
 their results under `data`:
 
 ```python
-{"schema_version": 2, "recording_id": ..., "path": ..., "query": "timeline",
+{"schema_version": 3, "recording_id": ..., "path": ..., "query": "timeline",
  "budget": "med", "tier": "summary", "window": {...},
  "data": { ... the actual analytics ... }}
 ```
@@ -471,7 +471,7 @@ A `.vadb` is a standard SQLite database; these readers open it read-only.
 | `lost_events` (property) | Exact count of emitted packets that never arrived, from the v3 sequence counter. 0 without sequence info means "unknown", not "verified zero". |
 | `seq_gaps` (property) | Number of distinct loss bursts behind `lost_events`. |
 | `is_clean` (property) | `corrupt_bytes == 0` **and** `lost_events == 0`: every emitted event made it into the recording. (Was a method through 1.0.0; the call form still works with a `DeprecationWarning`.) |
-| `task_stats(include_synthetic=False)` | `va_task_stats` rows as dicts, highest CPU first. Synthetic lanes (`_RTOS_`, `ISR:*`, `Fn:*`) filtered unless requested. Columns include `cpu_percent`, `run_count`, `avg_period_us`, `min/max_jitter_us`, `priority`, `stack_used_bytes`, `mutex_contentions`, ... |
+| `task_stats(include_synthetic=False)` | `va_task_stats` rows as dicts, highest CPU first. Synthetic lanes (`_RTOS_`, `ISR:*`, `Fn:*`) filtered unless requested. Columns include `cpu_percent`, `run_count`, `mean_switch_in_interval_us`, `min/max_switch_in_interval_deviation_us`, `priority`, `stack_used_bytes`, `mutex_contentions`, ... |
 | `meta()` | Provenance: `va_cpu_hz`, `va_os`, `capture_source`, `hardware_trace` (SWO captures: the applied image, `refused[]`, `swo_load`), ... |
 | `connect()` | A read-only `sqlite3.Connection` for anything else (full schema: `va_events`, `va_objects`, `va_trace_stats`, `health`, `raw_log`, `va_signal_blocks`). Caller closes it. |
 

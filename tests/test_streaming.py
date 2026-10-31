@@ -161,7 +161,10 @@ def test_events_delivers_every_kind_in_arrival_order(va, tmp_path):
     by_kind = {x.t: x for x in events}
     itm = by_kind["itm_text"]
     assert itm.data["port"] == 0 and itm.data["text"].startswith("boot ok")
-    assert itm.t_us is not None and itm.t_s == pytest.approx(itm.t_us / 1e6)
+    assert itm.t_us is None and itm.t_s is None
+    pc = by_kind["pc_samples"].data
+    assert pc["total"] == pc["eligible"] + pc["uncertain"] + pc["unavailable"] + pc["framing_unverified"]
+    assert pc["eligible"] == len(pc["pcs"]) + pc["sleep"]
     assert by_kind["swo_load"].data["share_pct"] == 50.0
     assert by_kind["swo_load"].t_us is None and by_kind["swo_load"].t_s is None
     assert by_kind["pc_samples"].data["pcs"] == [134217728, 134217984]

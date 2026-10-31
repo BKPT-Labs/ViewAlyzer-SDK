@@ -20,7 +20,7 @@ def test_version_handshake(va):
     assert info["app"] == "ViewAlyzer"
     assert info["schema_version"] == SCHEMA_VERSION
     assert info["schema_version"] in SUPPORTED_SCHEMA_VERSIONS
-    assert SCHEMA_VERSION == 2 and SUPPORTED_SCHEMA_VERSIONS == (1, 2)
+    assert SCHEMA_VERSION == 3 and SUPPORTED_SCHEMA_VERSIONS == (3,)
 
 
 def test_get_license(va):

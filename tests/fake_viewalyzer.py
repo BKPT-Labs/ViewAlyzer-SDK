@@ -11,7 +11,7 @@ import json
 import sqlite3
 import sys
 
-SV = 2
+SV = 3
 
 QUERY_VERBS = {
     "summary", "timeline", "events", "user-traces", "timers",
@@ -197,30 +197,31 @@ def handle_query(a):
         if elf:
             hot.update({"symbol": "main", "file": "main.c", "line": 42})
         return emit(dict(base, elf=elf, data={
-            "total_samples": 1000, "sleep_samples": 100, "span_s": 1.0,
-            "sample_rate_hz": 1000.0, "hotspots": [hot], "source": "dwt-swo",
+            "total_samples": 1000, "eligible_samples": 1000, "sleep_samples": 100, "span_s": None,
+            "sample_rate_hz": None, "hotspots": [hot], "source": "dwt-swo",
             "interval_cycles": 16384}))
     if verb == "itm-console":
         return emit(dict(base, port_flag=val(a, "--port"), data={"ports": [
-            {"port": 0, "lines": [{"t_us": 0, "text": "boot"}], "bytes": 5},
-            {"port": 1, "lines": [{"t_us": 10, "text": "HIL:1"},
-                                  {"t_us": 20, "text": "HI", "partial": True}], "bytes": 8},
+            {"port": 0, "lines": [{"t_us": None, "text": "boot"}], "bytes": 5},
+            {"port": 1, "lines": [{"t_us": None, "text": "HIL:1"},
+                                  {"t_us": None, "text": "HI", "partial": True}], "bytes": 8},
         ]}))
     if verb == "dwt-data":
         return emit(dict(base, elf=val(a, "--elf"), data={"watches": [{
             "cmp": 0, "name": "g_temp", "address": "0x20000410", "function": "data-w",
-            "count": 3, "first": [{"t_us": 10, "value": 1, "rw": "w"},
-                                  {"t_us": 20, "value": 2, "rw": "w", "pc": 134218240}]}]}))
+            "count": 3, "first": [{"t_us": None, "value": 1, "rw": "w"},
+                                  {"t_us": None, "value": 2, "rw": "w", "pc": "0x08000200"}]}]}))
     if verb == "dwt-exc":
         return emit(dict(base, data={
             "exceptions": [{"num": 15, "name": "SysTick", "enter": 100, "exit": 100,
-                            "return": 0, "max_depth": 1}],
-            "events": [{"t_us": 1000, "num": 15, "func": 1}]}))
+                            "return": 0, "max_depth": None, "observed_max_depth": 1,
+                            "framing_unverified_events": 0}],
+            "events": [{"t_us": None, "num": 15, "func": 1, "depth": None, "observed_depth": 1}]}))
     if verb == "dwt-counters":
         return emit(dict(base, data={
-            "counters": {"cpi": {"wraps": 10, "cycles": 2560, "rate_per_s": 2560.0},
-                         "sleep": {"wraps": 3, "cycles": 768, "rate_per_s": 768.0}},
-            "span_s": 1.0, "cpu_load_pct": 70.0}))
+            "counters": {"cpi": {"wraps": 10, "cycles": None, "rate_per_s": None},
+                         "sleep": {"wraps": 3, "cycles": None, "rate_per_s": None}},
+            "span_s": None, "cpu_load_pct": None, "reliable": False}))
     if verb == "swo-load":
         return emit(dict(base, data={
             "bytes": 250000, "seconds": 2.0, "bytes_per_s": 125000.0,
@@ -333,11 +334,12 @@ def stream_capture(a, transport):
             jline({"t": "stream_sample", "id": 4, "t_us": i * 10000, "value": i * 0.5})
         phase = i % 6
         if phase == 1:
-            jline({"t": "itm_text", "port": 0, "t_us": i * 10000, "text": "boot ok %d\n" % i})
+            jline({"t": "itm_text", "port": 0, "t_us": None, "bytes": list(("boot ok %d\n" % i).encode()), "text": "boot ok %d\n" % i})
         elif phase == 2:
             jline({"t": "swo_load", "bytes_per_s": 125000.0, "share_pct": 50.0, "overflows": 0})
         elif phase == 3:
-            jline({"t": "pc_samples", "total": 64, "sleep": 8, "pcs": [134217728, 134217984]})
+            jline({"t": "pc_samples", "total": 6, "sleep": 1, "eligible": 3, "eligible_dwt_packets": 3,
+                   "uncertain": 1, "unavailable": 1, "framing_unverified": 1, "pcs": [134217728, 134217984]})
         elif phase == 4:
             jline({"t": "dwt_data", "rows": [{"cmp": 0, "t_us": i * 10000, "v": 42,
                                               "size": 4, "w": True, "pc": None}]})

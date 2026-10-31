@@ -6,7 +6,7 @@
 $ pip install viewalyzer-sdk
 ```
 
-Pure Python, no dependencies beyond the standard library. The package is `viewalyzer_sdk`; version 1.3.0 speaks the CLI's schema 2 (and still reads schema 1).
+Pure Python, no dependencies beyond the standard library. The package is `viewalyzer_sdk`; version 1.3.0 speaks the CLI's schema 3.
 
 ## Finding the binary
 
