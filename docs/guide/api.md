@@ -70,8 +70,9 @@ Returned by `record()`, `snapshot()`, `record_polls()`, `open()` and `recordings
 | `itm_console(*, port=None)` | `itm-console [--port N]` (also filtered client-side, so an older CLI behaves the same) |
 | `dwt_data(*, elf=None)`, `dwt_exc()`, `dwt_counters()`, `swo_load()` | the hardware-trace queries; `ViewAlyzerError("no_hw_trace")` on a recording without it |
 | `sql(statement, *, budget=None)`, `sql_rows(statement, *, budget=None)` | `sql`: the envelope, or the rows as dicts keyed by column |
-| `fingerprint(*, runs=(), sections=None, tolerance_pct=None, warn_pct=None, out=None)` | `fingerprint` |
-| `compare(baseline)` | `compare`: the envelope with `verdict` and `results[]` (a regression is data, not an exception) |
+| `fingerprint(*, runs=(), sections=None, tolerance_pct=None, warn_pct=None, out=None, require_provenance=(), ignore_provenance=())` | `fingerprint` |
+| `compare(baseline, *, ci=False)` | `compare`: the envelope with `verdict` and `results[]` (a regression is data, not an exception) |
+| `assert_matches(baseline)` | Strict CI comparison; raises `FingerprintMismatch` with its full `report` for a regression, incomparable provenance or invalid measurement |
 | `etm(tier="summary", *, budget=None)` | `etm`: answers `ViewAlyzerError("etm_not_present")` on this CLI, kept for compatibility |
 
 ```python

@@ -23,7 +23,7 @@ from .client import (
     ViewAlyzer,
 )
 from .discovery import ENV_VAR, find_viewalyzer, find_viewalyzer_with_source
-from .errors import BinaryNotFound, ViewAlyzerError, ViewAlyzerWarning
+from .errors import BinaryNotFound, FingerprintMismatch, ViewAlyzerError, ViewAlyzerWarning
 from .recording import Recording
 from .runtime_map import RuntimeMap
 from .streaming import StreamEvent, StreamMeta, StreamSample, StreamSession
@@ -41,6 +41,7 @@ __all__ = [
     "ViewAlyzerError",
     "ViewAlyzerWarning",
     "BinaryNotFound",
+    "FingerprintMismatch",
     "find_viewalyzer",
     "find_viewalyzer_with_source",
     "ENV_VAR",

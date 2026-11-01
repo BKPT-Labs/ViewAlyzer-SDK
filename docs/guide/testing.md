@@ -50,8 +50,7 @@ def test_sine_channel(rec):
 
 ```python
 def test_against_baseline(rec):
-    res = rec.compare("ci/app.vafp.json")
-    assert res["verdict"] in ("pass", "warn"), [r for r in res["results"] if r["status"] in ("fail", "missing")]
+    rec.assert_matches("ci/app.vafp.json")
 ```
 
 Make the baseline once from a known-good run (or several, to learn the envelope) and commit it:
@@ -60,6 +59,19 @@ Make the baseline once from a known-good run (or several, to learn the envelope)
 good = va.open("good1.vadb")
 good.fingerprint(runs=["good2.vadb", "good3.vadb"], out="ci/app.vafp.json")
 ```
+
+`assert_matches()` runs `compare(..., ci=True)` and raises `FingerprintMismatch`
+for a regression, incomparable provenance or invalid measurement. The exception's
+`report` holds the full result. Ordinary tolerance warnings succeed. An old CLI
+that does not confirm strict mode is rejected; update both the app and SDK.
+
+Baseline creation accepts `require_provenance=["recorder_version"]` and
+`ignore_provenance=["cpu_hz"]` for deliberate exceptions. Supported fields are
+`os`, `cpu_hz` (timestamp clock), `capture_source`, `trace_categories`,
+`build_flags` and `recorder_version`. Rules live in the saved baseline; required
+values must be known and equal, and ignored values remain visible in reports.
+These fields do not verify board identity or every RTOS setting. Rebuild legacy
+baselines from usable recordings and review their policies before enabling CI.
 
 The sections, tolerances and the file format are on the [CLI's CI page](../viewalyzer-cli/ci.html); the file is hand-editable.
 
