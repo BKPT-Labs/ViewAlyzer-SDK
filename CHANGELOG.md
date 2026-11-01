@@ -3,6 +3,14 @@
 The public API is additive only: nothing listed here renames, removes, or
 changes the behaviour of an existing class, method, parameter, or constant.
 
+## Unreleased
+
+- Baseline authoring accepts `require_provenance` and `ignore_provenance`.
+- `compare(..., ci=True)` requests the product's strict gate and rejects CLIs
+  that do not confirm support. `assert_matches()` raises `FingerprintMismatch`
+  for regressions, incomparable provenance or invalid measurements, retaining
+  the full comparison in `report`.
+
 ## 1.3.0 (2026-08-29)
 
 Catch-up with the native-driver CLI (`viewalyzer-cli`, wire-protocol

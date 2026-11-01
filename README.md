@@ -222,7 +222,7 @@ git-committable baseline and gates CI on deviations:
 
 ```python
 rec.fingerprint(out="golden.vafp.json")       # commit this file
-result = new_rec.compare("golden.vafp.json")  # later runs
+result = new_rec.assert_matches("golden.vafp.json")  # strict CI; raises on failure
 assert result["verdict"] in ("pass", "warn")
 ```
 

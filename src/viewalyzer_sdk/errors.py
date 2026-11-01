@@ -38,6 +38,25 @@ class ViewAlyzerError(Exception):
         self.limits = limits
 
 
+class FingerprintMismatch(ViewAlyzerError):
+    """A failed strict fingerprint gate; ``report`` retains the CLI evidence."""
+
+    def __init__(self, report: dict) -> None:
+        self.report = report
+        verdict = report.get("verdict", "unknown")
+        reasons = list(report.get("measurement_issues") or [])
+        reasons += [row.get("message", "") for row in
+                    report.get("compatibility", {}).get("fields", [])
+                    if row.get("rule") == "require" and row.get("status") != "match"]
+        if not reasons:
+            reasons += [row.get("message") or str(row.get("metric", ""))
+                        for row in report.get("results", [])
+                        if row.get("status") in ("fail", "missing")]
+        if not reasons:
+            reasons.append(report.get("compatibility", {}).get("message") or "See comparison report")
+        super().__init__(f"fingerprint_{verdict}", "; ".join(str(r) for r in reasons if r))
+
+
 class BinaryNotFound(ViewAlyzerError):
     """The ViewAlyzer executable could not be located (or an explicitly
     configured path does not exist)."""
