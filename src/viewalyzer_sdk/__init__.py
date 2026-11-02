@@ -28,7 +28,7 @@ from .recording import Recording
 from .runtime_map import RuntimeMap
 from .streaming import StreamEvent, StreamMeta, StreamSample, StreamSession
 
-__version__ = "1.3.0"
+__version__ = "1.4.0"
 
 __all__ = [
     "ViewAlyzer",

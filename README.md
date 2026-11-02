@@ -4,6 +4,20 @@ Python SDK for the **ViewAlyzer** headless CLI: automate embedded trace
 capture, analytics queries, and regression assertions from Python, pytest,
 and CI.
 
+Validate custom Trace Domains with the installed ViewAlyzer CLI directly:
+
+```bash
+viewalyzer-cli parse-trace-domain my-domain.vadomain --pretty
+```
+
+Or use `ViewAlyzer().validate_trace_domain("my-domain.vadomain")` from Python.
+The SDK returns the native report, including exact field paths and rejection
+reasons. `ViewAlyzer().trace_domain_schema()` retrieves the native schema envelope.
+These methods require a ViewAlyzer build with `parse-trace-domain`; they need no
+probe or connected board. The SDK contains no separate validation rules.
+See the [complete authoring guide](https://bkptlabs.com/docs/trace-domains/authoring.html)
+for the full format, five examples, CLI output and editor schema export.
+
 ViewAlyzer records RTOS/baremetal trace streams from real targets (ST-LINK
 and J-Link SWO, RTT, RAM-buffer draining, UDP, serial) into self-describing
 `.vadb` recordings, which are standard SQLite files, and answers analytics
