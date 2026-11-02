@@ -22,7 +22,9 @@ returns exact integer nanosecond bounds for host memory-read intervals.
 from __future__ import annotations
 
 import contextlib
+import json
 import sqlite3
+import tempfile
 import urllib.parse
 import warnings
 from pathlib import Path
@@ -365,6 +367,8 @@ class Recording:
         tolerance_pct: Optional[float] = None,
         warn_pct: Optional[float] = None,
         out: Optional[PathLike] = None,
+        require_provenance: Union[str, Sequence[str]] = (),
+        ignore_provenance: Union[str, Sequence[str]] = (),
     ) -> Dict[str, Any]:
         """Distill this recording's summary tables into a small,
         git-committable ``.vafp.json`` baseline: per-metric values plus warn
@@ -376,7 +380,9 @@ class Recording:
         ``traces``, ``timers``, ``comms``, ``health``, ``etm``).
         *tolerance_pct* sets the fail threshold, *warn_pct* the warn
         threshold; both are per-metric-editable in the written file.
-        Pass *out* to also write the baseline to disk."""
+        Pass *out* to also write the baseline to disk. *require_provenance*
+        and *ignore_provenance* save explicit per-field compatibility rules;
+        required values must be known and equal in subsequent comparisons."""
         if isinstance(runs, (str, Path)):
             runs = [runs]
         if isinstance(sections, str):
@@ -390,20 +396,84 @@ class Recording:
             flags += ["--tolerance-pct", str(tolerance_pct)]
         if warn_pct is not None:
             flags += ["--warn-pct", str(warn_pct)]
-        if out is not None:
-            flags += ["--out", str(out)]
-        return self._client.query("fingerprint", self, extra_flags=flags)
+        policy_flags: List[str] = []
+        for option, fields in (("require-provenance", require_provenance),
+                               ("ignore-provenance", ignore_provenance)):
+            if fields:
+                policy_flags += ["--" + option, fields if isinstance(fields, str) else ",".join(fields)]
 
-    def compare(self, baseline: PathLike) -> Dict[str, Any]:
+        def generate(destination: Optional[PathLike]) -> Dict[str, Any]:
+            output_flags = ["--out", str(destination)] if destination is not None else []
+            payload = self._client.query("fingerprint", self, extra_flags=flags + output_flags + policy_flags)
+            document = payload.get("fingerprint")
+            version = payload.get("fingerprint_schema_version")
+            if version is None and isinstance(document, dict):
+                version = document.get("schema_version")
+            if policy_flags and version not in (2, 3):
+                raise ViewAlyzerError("unsupported_cli", "This CLI did not confirm fingerprint compatibility rules; update ViewAlyzer")
+            return payload
+
+        if out is None or not policy_flags:
+            return generate(out)
+        # An older CLI may write a file while silently ignoring new flags.
+        # Keep the destination untouched until capability validation succeeds.
+        destination = Path(out)
+        staged = None
+        try:
+            try:
+                with tempfile.NamedTemporaryFile(prefix=".viewalyzer-fingerprint-", suffix=".vafp.json",
+                                                 dir=destination.parent, delete=False) as temporary:
+                    staged = Path(temporary.name)
+            except OSError as error:
+                raise ViewAlyzerError("file_write_failed", f"Could not stage fingerprint {out}: {error}") from error
+            payload = generate(staged)
+            try:
+                document = json.loads(staged.read_text(encoding="utf-8"))
+                if not isinstance(document, dict) or document.get("format") != "vafp" or document.get("schema_version") not in (2, 3):
+                    raise ViewAlyzerError("bad_output", "CLI did not write a supported fingerprint to the requested output path")
+                staged.replace(destination)
+            except (ValueError, UnicodeError) as error:
+                raise ViewAlyzerError("bad_output", "CLI did not write valid fingerprint JSON to the requested output path") from error
+            except OSError as error:
+                raise ViewAlyzerError("file_write_failed", f"Could not write fingerprint {out}: {error}") from error
+            staged = None
+            payload["out"] = str(out)
+            return payload
+        finally:
+            if staged is not None:
+                # Cleanup must not hide the original CLI/capability failure.
+                with contextlib.suppress(OSError):
+                    staged.unlink()
+
+    def compare(self, baseline: PathLike, *, ci: bool = False) -> Dict[str, Any]:
         """Compare this recording against a baseline (``.vafp.json``, or a
         ``.vadb`` fingerprinted on the fly). Returns per-metric results,
         missing/new tasks-traces-functions, and an overall ``verdict``
-        (``pass`` / ``warn`` / ``fail``). A fail verdict is data, not an
-        exception: check ``payload["verdict"]``."""
-        return self._client.query(
+        (``pass``, ``warn``, ``fail``, ``incomparable`` or ``invalid``).
+        *ci* requires explicit provenance policy and measurement evidence.
+        Verdicts are returned as data. Use :meth:`assert_matches` to fail a
+        Python test or job automatically."""
+        payload = self._client.query(
             "compare", self,
-            extra_flags=["--baseline", str(_existing_path(baseline, "baseline"))],
+            extra_flags=["--baseline", str(_existing_path(baseline, "baseline"))] + (["--ci"] if ci else []),
         )
+        if ci and payload.get("ci") is not True:
+            raise ViewAlyzerError("unsupported_cli", "This CLI did not enforce --ci; update ViewAlyzer")
+        if ci and payload.get("verdict") not in ("pass", "warn", "fail", "incomparable", "invalid"):
+            raise ViewAlyzerError("bad_output", "Unrecognized fingerprint CI verdict")
+        return payload
+
+    def assert_matches(self, baseline: PathLike) -> Dict[str, Any]:
+        """Run the product's strict CI gate, raising :class:`FingerprintMismatch`
+        for regressions, incompatible provenance or invalid measurements.
+        Normal tolerance warnings are accepted, as with the CLI's exit code 0.
+        The exception's ``report`` retains the complete comparison."""
+        from .errors import FingerprintMismatch
+
+        report = self.compare(baseline, ci=True)
+        if report["verdict"] not in ("pass", "warn"):
+            raise FingerprintMismatch(report)
+        return report
 
     # ----- direct SQLite access (no subprocess) ---------------------------
 

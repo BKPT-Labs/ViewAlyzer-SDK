@@ -70,8 +70,9 @@ Returned by `record()`, `snapshot()`, `record_polls()`, `open()` and `recordings
 | `itm_console(*, port=None)` | `itm-console [--port N]` (also filtered client-side, so an older CLI behaves the same) |
 | `dwt_data(*, elf=None)`, `dwt_exc()`, `dwt_counters()`, `swo_load()` | the hardware-trace queries; `ViewAlyzerError("no_hw_trace")` on a recording without it |
 | `sql(statement, *, budget=None)`, `sql_rows(statement, *, budget=None)` | `sql`: the envelope, or the rows as dicts keyed by column |
-| `fingerprint(*, runs=(), sections=None, tolerance_pct=None, warn_pct=None, out=None)` | `fingerprint` |
-| `compare(baseline)` | `compare`: the envelope with `verdict` and `results[]` (a regression is data, not an exception) |
+| `fingerprint(*, runs=(), sections=None, tolerance_pct=None, warn_pct=None, out=None, require_provenance=(), ignore_provenance=())` | `fingerprint` |
+| `compare(baseline, *, ci=False)` | `compare`: the envelope with `verdict` and `results[]` (a regression is data, not an exception) |
+| `assert_matches(baseline)` | Strict CI comparison; raises `FingerprintMismatch` with its full `report` for a regression, incomparable provenance or invalid measurement |
 | `etm(tier="summary", *, budget=None)` | `etm`: answers `ViewAlyzerError("etm_not_present")` on this CLI, kept for compatibility |
 
 ```python
@@ -133,6 +134,9 @@ are rebuilt if evicted or source/engine/cache version changes. Direct SQL reads
 a fixed snapshot. See [runtime map recipes](../../README.md#runtime-maps-for-agents-and-ci)
 for lifecycle, pagination and evidence semantics.
 
+For baseline creation, envelope learning, metric selection versus compatibility rules,
+and strict failures, see [Fingerprints, baselines and envelopes](testing.md#fingerprints-baselines-and-envelopes).
+
 ## Streaming types
 
 `StreamSession`, `StreamMeta(id, name, type)`, `StreamSample(id, t_us, value, is_float, name, stream_type)` with `t_s`, and `StreamEvent(t, t_us, data)` with `t_s`: see [Live streaming](streaming.md).
@@ -141,11 +145,12 @@ for lifecycle, pagination and evidence semantics.
 
 ```python
 class ViewAlyzerError(Exception):   # .code, .message, .suggestion, .limits
+class FingerprintMismatch(ViewAlyzerError)  # .report preserves the strict comparison
 class BinaryNotFound(ViewAlyzerError)   # code "binary_missing"
 class ViewAlyzerWarning(UserWarning)
 ```
 
-`ViewAlyzerError` is raised for every CLI error envelope, keyed on the `error` field rather than the exit status: `code` is the CLI's token (`bad_config`, `no_such_recording`, `window_too_wide`, `empty_capture`, `cooldown_active`, `no_hw_trace`, ...), `suggestion` and `limits` carry the envelope's hints (`limits["retry_after_s"]` on a cooldown). SDK-side codes: `binary_missing`, `timeout`, `bad_output` (the CLI printed no JSON), `record_failed`, `command_failed`, `file_not_found`, `bad_arguments`.
+`ViewAlyzerError` is raised for every CLI error envelope, keyed on the `error` field rather than the exit status: `code` is the CLI's token (`bad_config`, `no_such_recording`, `window_too_wide`, `empty_capture`, `cooldown_active`, `no_hw_trace`, ...), `suggestion` and `limits` carry the envelope's hints (`limits["retry_after_s"]` on a cooldown). SDK-side codes: `binary_missing`, `timeout`, `bad_output` (the CLI printed no JSON), `record_failed`, `command_failed`, `file_not_found`, `bad_arguments`, `file_write_failed` (the requested fingerprint could not be replaced safely).
 
 `ViewAlyzerWarning` is emitted (through `warnings`) for parameters this CLI does not act on, such as `symbols` on `record()`.
 

@@ -3,6 +3,21 @@
 The public API is additive only: nothing listed here renames, removes, or
 changes the behaviour of an existing class, method, parameter, or constant.
 
+## Unreleased
+
+- Explicit-rule authoring preserves the destination until the CLI confirms a
+  supported policy format; file formats 2 and 3 are acknowledged separately
+  from the CLI response protocol. Incomplete mismatch explanations retain the
+  full report and a useful fallback message.
+- Expanded fingerprint/envelope/CI documentation and opt-in regression tests
+  against saved recordings, without hardware capture.
+
+- Baseline authoring accepts `require_provenance` and `ignore_provenance`.
+- `compare(..., ci=True)` requests the product's strict gate and rejects CLIs
+  that do not confirm support. `assert_matches()` raises `FingerprintMismatch`
+  for regressions, incomparable provenance or invalid measurements, retaining
+  the full comparison in `report`.
+
 ## 1.3.0 (2026-08-29)
 
 Catch-up with the native-driver CLI (`viewalyzer-cli`, wire-protocol
