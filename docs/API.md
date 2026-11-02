@@ -428,7 +428,8 @@ produce them. Results sit under `["data"]`.
 
 | Method | What you get |
 |---|---|
-| `fingerprint(*, runs=(), sections=None, tolerance_pct=None, warn_pct=None, out=None, require_provenance=(), ignore_provenance=())` | Distills the recording's summary tables into a small, git-committable `.vafp.json` baseline: per-metric values plus warn/fail thresholds (counts normalized to per-second rates) and capture provenance. `runs` merges extra recordings so the baseline's min/max envelope reflects run-to-run variance. `sections` picks from `summary, tasks, traces, timers, comms, health`. Thresholds are per metric and hand-editable in the file. `out` also writes it to disk. |
+| `fingerprint(*, runs=(), sections=None, tolerance_pct=None, warn_pct=None, out=None, require_provenance=(), ignore_provenance=())` | Distills the recording's summary tables into a small, git-committable `.vafp.json` baseline: per-metric values plus warn/fail thresholds (counts normalized to per-second rates) and capture provenance. `runs` merges extra recordings so the baseline's min/max envelope reflects run-to-run variance. `sections` picks from `summary, tasks, traces, timers, comms, health`. Thresholds are per metric and hand-editable in the file. `out` also writes it to disk. `require_provenance` and `ignore_provenance` accept a field name, comma-separated names, or a sequence of names; they control compatibility, not metric selection. File formats 2 and 3 are supported by comparisons; individual-bit exceptions are authored in the GUI or reviewed baseline JSON. |
+| `assert_matches(baseline)` | Runs strict comparison. Returns the report on pass/warn; raises `FingerprintMismatch` on fail/incomparable/invalid. The exception retains `.report`, `.code` and `.message`. See [fingerprint CI examples](guide/testing.md#fingerprints-baselines-and-envelopes). |
 | `compare(baseline, *, ci=False)` | Compares this recording against a baseline (`.vafp.json` in either engine's dialect, or a `.vadb` fingerprinted on the fly). Per-metric results (pass within the warn band, warn up to the fail band, fail beyond), missing/new items, provenance warnings, and an overall `"verdict"`. **Verdicts are data, not exceptions**: `ci=True` requires explicit baseline rules and usable measurement evidence. Check for `pass`/`warn`; `fail`, `incomparable` and `invalid` reject the run. Use `assert_matches(baseline)` to raise `FingerprintMismatch`, whose `report` retains the complete decision. |
 
 **Response envelope.** Every query payload carries `schema_version`,
@@ -615,8 +616,7 @@ def test_cpu_headroom(rec):
     assert busiest["name"] == "idle" or busiest["cpu_percent"] < 80
 
 def test_against_golden_run(rec):
-    result = rec.compare("golden.vafp.json")
-    assert result["verdict"] != "fail", result["results"]
+    rec.assert_matches("golden.vafp.json")
 
 def test_no_domain_verdicts(rec):
     assert rec.verdicts()["count"] == 0

@@ -44,16 +44,21 @@ class FingerprintMismatch(ViewAlyzerError):
     def __init__(self, report: dict) -> None:
         self.report = report
         verdict = report.get("verdict", "unknown")
-        reasons = list(report.get("measurement_issues") or [])
-        reasons += [row.get("message", "") for row in
-                    report.get("compatibility", {}).get("fields", [])
-                    if row.get("rule") == "require" and row.get("status") != "match"]
+        compatibility = _as_dict(report.get("compatibility")) or {}
+        issues = report.get("measurement_issues")
+        reasons = list(issues) if isinstance(issues, list) else []
+        fields = compatibility.get("fields")
+        reasons += [row.get("message", "") for row in (fields if isinstance(fields, list) else [])
+                    if isinstance(row, dict) and row.get("rule") == "require" and row.get("status") != "match"]
+        reasons = [str(reason).strip() for reason in reasons if reason and str(reason).strip()]
         if not reasons:
+            results = report.get("results")
             reasons += [row.get("message") or str(row.get("metric", ""))
-                        for row in report.get("results", [])
-                        if row.get("status") in ("fail", "missing")]
+                        for row in (results if isinstance(results, list) else [])
+                        if isinstance(row, dict) and row.get("status") in ("fail", "missing")]
+            reasons = [str(reason).strip() for reason in reasons if reason and str(reason).strip()]
         if not reasons:
-            reasons.append(report.get("compatibility", {}).get("message") or "See comparison report")
+            reasons.append(str(compatibility.get("message") or "").strip() or "See comparison report")
         super().__init__(f"fingerprint_{verdict}", "; ".join(str(r) for r in reasons if r))
 
 
